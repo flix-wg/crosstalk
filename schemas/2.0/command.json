@@ -82,57 +82,6 @@
         ]
       }
     },
-    "intent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "intent_id",
-        "rev",
-        "state",
-        "summary",
-        "resources",
-        "expires_at"
-      ],
-      "properties": {
-        "type": {
-          "const": "intent"
-        },
-        "intent_id": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "rev": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "state": {
-          "enum": [
-            "active",
-            "done",
-            "abandoned",
-            "expired"
-          ]
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 280
-        },
-        "resources": {
-          "$ref": "#/$defs/keys"
-        },
-        "reads": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/oid"
-          }
-        },
-        "expires_at": {
-          "$ref": "#/$defs/time"
-        }
-      }
-    },
     "branch_status": {
       "type": "object",
       "additionalProperties": false,
@@ -188,6 +137,7 @@
       "required": [
         "type",
         "lease_id",
+        "mode",
         "op",
         "state",
         "resources",
@@ -199,6 +149,12 @@
       "properties": {
         "type": {
           "const": "lease"
+        },
+        "mode": {
+          "enum": [
+            "exclusive",
+            "shared"
+          ]
         },
         "lease_id": {
           "type": "string",
@@ -391,7 +347,7 @@
           "maxItems": 8,
           "items": {
             "type": "string",
-            "pattern": "^(merge:branch:\\S+|deploy:env:[a-z0-9-]+)$"
+            "pattern": "^(merge:(branch|target):\\S+|deploy:env:[a-z0-9-]+)$"
           }
         },
         "bound_head": {
@@ -637,107 +593,18 @@
           "format": "uuid"
         },
         "op": {
-          "const": "intent.post"
-        },
-        "args": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "intent_id": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "summary": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 280
-            },
-            "resources": {
-              "$ref": "#/$defs/keys"
-            },
-            "reads": {
-              "type": "object",
-              "additionalProperties": {
-                "$ref": "#/$defs/oid"
-              }
-            },
-            "ttl_s": {
-              "type": "integer",
-              "minimum": 1
-            }
-          },
-          "required": [
-            "summary",
-            "resources"
-          ]
-        },
-        "expect_rev": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "request_id",
-        "op",
-        "args"
-      ]
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "request_id": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "op": {
-          "const": "intent.close"
-        },
-        "args": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "intent_id": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "state": {
-              "enum": [
-                "done",
-                "abandoned"
-              ]
-            }
-          },
-          "required": [
-            "intent_id"
-          ]
-        },
-        "expect_rev": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "request_id",
-        "op",
-        "args"
-      ]
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "request_id": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "op": {
           "const": "lease.claim"
         },
         "args": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "mode": {
+              "enum": [
+                "exclusive",
+                "shared"
+              ]
+            },
             "resources": {
               "type": "array",
               "items": {
@@ -754,21 +621,12 @@
               },
               "minItems": 1,
               "maxItems": 64,
-              "uniqueItems": true,
-              "if": {
-                "contains": {
-                  "type": "string",
-                  "pattern": "^env:"
-                }
-              },
-              "then": {
-                "maxItems": 1
-              }
+              "uniqueItems": true
             },
             "ttl_s": {
               "type": "integer",
               "minimum": 30,
-              "maximum": 900
+              "maximum": 3600
             },
             "note": {
               "type": "string",
@@ -795,7 +653,44 @@
           },
           "required": [
             "resources"
-          ]
+          ],
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "shared"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "note": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "note"
+            ]
+          },
+          "else": {
+            "properties": {
+              "resources": {
+                "type": "array",
+                "if": {
+                  "contains": {
+                    "type": "string",
+                    "pattern": "^env:"
+                  }
+                },
+                "then": {
+                  "maxItems": 1
+                }
+              }
+            }
+          }
         },
         "expect_rev": {
           "type": "integer",
@@ -1062,7 +957,7 @@
               "maxItems": 8,
               "items": {
                 "type": "string",
-                "pattern": "^(merge:branch:\\S+|deploy:env:[a-z0-9-]+)$"
+                "pattern": "^(merge:(branch|target):\\S+|deploy:env:[a-z0-9-]+)$"
               }
             },
             "bound_head": {
@@ -1688,6 +1583,13 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "sequences": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[^()]*\\(\\\\d\\+\\)[^()]*$"
+              }
+            },
             "protected_branches": {
               "type": "array",
               "items": {

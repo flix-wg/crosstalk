@@ -3,7 +3,7 @@ export class Args {
   readonly positional: string[] = [];
   private readonly flags = new Map<string, string[]>();
   constructor(argv: string[]) {
-    const booleans = new Set(["json", "approval", "unknown-source", "help", "local", "human"]);
+    const booleans = new Set(["json", "shared", "approval", "unknown-source", "help", "local", "human"]);
     for (let i = 0; i < argv.length; i++) {
       const arg = argv[i];
       if (!arg.startsWith("--")) { this.positional.push(arg); continue; }

@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ClientError } from "./config.js";
 import type { LoadedConfig } from "./config.js";
-import { LocalCache } from "./cache.js";
+import { LocalCache, queueable } from "./cache.js";
 import { jcs, sha256 } from "../schema/index.js";
 import { verifyRelaySignature } from "./signature.js";
 import { scanSecrets } from "./render.js";
@@ -171,23 +171,26 @@ export class RelayClient {
     try {
       const response = await this.request("/commands", command, command.request_id);
       if (command.op === "lease.claim" && response.result && typeof response.result === "object" && "lease_id" in response.result)
-        this.options.cache?.set("ttl:" + String(response.result.lease_id), command.args.ttl_s ?? 300);
+        this.options.cache?.set("ttl:" + String(response.result.lease_id), command.args.ttl_s ?? (command.args.mode === "shared" ? 3600 : 300));
       if (command.op === "reserve") this.options.cache?.saveReservation(command.request_id, { command, response });
       await this.reconnectOutbox();
       return response;
     } catch (e) {
       if (e instanceof ClientError && e.code === "unknown" && this.options.cache &&
-        ["message.send", "intent.post", "intent.close", "ask.open"].includes(command.op)) {
+        queueable(command)) {
         this.options.cache.enqueue(command, this.outboxScope());
         throw new ClientError("queued", "Queued offline; delivery is not yet confirmed");
       }
       throw e;
     }
   }
-  send<Op extends keyof CommandArgs>(op: Op, args: CommandArgs[Op], expect_rev?: number): Promise<RelayResponse> {
+  async send<Op extends keyof CommandArgs>(op: Op, args: CommandArgs[Op], expect_rev?: number): Promise<RelayResponse> {
     if (op === "reserve") {
       const reservation = args as CommandArgs["reserve"];
-      const floor = reservation.abandon === undefined ? reservationFloor(this.config, reservation.sequence) : undefined;
+      const policy = reservation.abandon === undefined
+        ? (await this.request<{ coordination: { policy?: { sequences?: Record<string, string> } } }>("/board")).result.coordination.policy
+        : undefined;
+      const floor = reservation.abandon === undefined ? reservationFloor(this.config, reservation.sequence, policy?.sequences) : undefined;
       if (floor !== undefined) args = { ...reservation, floor: Math.max(floor, reservation.floor ?? 0) } as CommandArgs[Op];
     }
     // The indexed args/op pair is guaranteed by this signature; TS loses the correlation when constructing a mapped union.

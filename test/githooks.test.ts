@@ -6,7 +6,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomUUID, createHash, createPublicKey } from "node:crypto";
 import { openStore } from "../src/store-sqlite/index.js";
 import { startRelay } from "../src/relay/index.js";
-import { trust, RelayClient, credentialScope, Workspace } from "../src/client/index.js";
+import { duplicateSequence, trust, RelayClient, credentialScope, Workspace } from "../src/client/index.js";
 import { runPreReceive, runPostReceive, runPreCommit, runPrePush, runSeed, resolveSources } from "../src/githooks/index.js";
 import { installGitHooks } from "../src/githooks/install.js";
 const cleanup: (() => unknown)[] = [];
@@ -48,6 +48,9 @@ test("bare remote enforces draft overrides, exact approval heads, non-FF and out
   await session.client.send("branch.set", { branch: "bridge", head: git("rev-parse", "HEAD"), state: "ready" });
   expect((await push("bridge")).code).toBe(0);
   git("switch", "main"); git("merge", "--no-ff", "bridge", "-m", "merge intermediate"); const merged = git("rev-parse", "HEAD");
+  const queueRefs = new Map([["refs/remotes/origin/gh-readonly-queue/main/pr-1", merged], ["refs/heads/bridge", git("rev-parse", "bridge")]]);
+  expect(resolveSources(repo, { old: initial, new: merged, ref: "refs/heads/main" }, queueRefs, new Set(["main"])))
+    .toEqual([{ source_branch: "bridge", source_head: git("rev-parse", "bridge") }]);
   const denied = await push("main"); expect(denied.code).not.toBe(0); expect(denied.output).toContain("draft"); expect(denied.output).toContain("human∶test"); expect(denied.output).toContain("API review");
   await human.send("override.record", { scope: ["merge:branch:topic"], bound_head: draft, reason: "reviewed" });
   const allowed = await push("main"); expect(allowed.code, allowed.output).toBe(0);
@@ -107,4 +110,23 @@ test("installer preserves existing Git hooks", () => {
   expect(installGitHooks(root)).toContain("ci:remote"); installGitHooks(root);
   const file = join(root, ".git/hooks/pre-commit"); writeFileSync(file, "existing hook");
   expect(() => installGitHooks(root)).toThrow("Existing Git hook"); expect(readFileSync(file, "utf8")).toBe("existing hook");
+});
+
+test("sequence gate detects duplicate numbers introduced on independent branches", () => {
+  const repo = mkdtempSync(join(tmpdir(), "xt-sequence-"));
+  cleanup.push(() => rmSync(repo, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  git("init", "-q", "-b", "main");
+  git("config", "user.name", "Test");
+  git("config", "user.email", "test@example.org");
+  git("commit", "--allow-empty", "-qm", "initial");
+  git("branch", "topic");
+  for (const [branch, path] of [["main", "01_base.sql"], ["topic", "1_topic.sql"]]) {
+    git("switch", "-q", branch);
+    writeFileSync(join(repo, path), "");
+    git("add", path);
+    git("commit", "-qm", path);
+  }
+  expect(duplicateSequence(repo, "topic", { migrations: "(\\d+)_*.sql" }, "main"))
+    .toBe("migrations number 1 occurs in 01_base.sql and 1_topic.sql");
 });

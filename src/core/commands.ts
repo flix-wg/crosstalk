@@ -1,6 +1,6 @@
 import { deploymentRecord, executorEnroll, freezeChange } from "./deploy.js";
 import { askOpen, askChange, overrideRecord } from "./asks.js";
-import { reserve, intent, branchSet, messaging, policySet, refAdvance } from "./coordination.js";
+import { reserve, branchSet, messaging, policySet, refAdvance } from "./coordination.js";
 import { claim, releaseOrRevoke, revokePrincipalLeases, releaseSession } from "./leases.js";
 import { validateCommand, commandArgsSchemas, jcs } from "../schema/index.js";
 import type { Command } from "../schema/index.js";
@@ -52,7 +52,7 @@ const revoke: Handler = c => {
 const handlers: Partial<Record<Command["op"], Handler>> = { "session.release": releaseSession, "principal.invite": invite, "principal.revoke": revoke,
   "deployment.record": deploymentRecord, "env.adopt": deploymentRecord, "executor.enroll": executorEnroll, "space.freeze": freezeChange, "space.unfreeze": freezeChange,
   "ask.open": askOpen, "ask.answer": askChange, "ask.withdraw": askChange, "override.record": overrideRecord,
-  reserve, "intent.post": intent, "intent.close": intent, "branch.set": branchSet, "message.send": messaging, "inbox.ack": messaging, "policy.set": policySet, "ref.advance": refAdvance, "ref.seed": refAdvance,
+  reserve, "branch.set": branchSet, "message.send": messaging, "inbox.ack": messaging, "policy.set": policySet, "ref.advance": refAdvance, "ref.seed": refAdvance,
   "lease.claim": claim, "lease.release": releaseOrRevoke, "lease.revoke": releaseOrRevoke };
 export function execute(tx: SqlTx, ctx: Ctx, actor: Actor, input: unknown): Result {
   const now = ctx.now();

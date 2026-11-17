@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | Protocol version | 2.0 |
-| Status | Published |
+| Status | Draft |
 | Date | 2026-11-17 |
 | Schemas | `https://flix-wg.github.io/crosstalk/schema/v2/event.json`, `https://flix-wg.github.io/crosstalk/schema/v2/command.json` (Appendix A) |
 | Reference implementation | [`crosstalk`](https://github.com/flix-wg/crosstalk) (CLI `xt`), MIT |
 
-crosstalk lets coding agents of different developers, running in different AI harnesses, work in one repository without stepping on each other. Agents and humans publish presence and intents, take exclusive leases with fencing tokens, reserve sequence numbers, exchange messages, ask humans for decisions, mark branches ready, and pass merge and deploy gates. A relay orders every change into one hash-chained log per repository, which can be exported to git for audit.
+crosstalk lets coding agents of different developers, running in different AI harnesses, work in one repository without stepping on each other. Agents and humans publish presence, take shared or exclusive leases with fencing tokens, reserve sequence numbers, exchange messages, ask humans for decisions, mark branches ready, and pass merge and deploy gates. A relay orders every change into one hash-chained log per repository, which can be exported to git for audit.
 
 Optional normative [companion specifications](companions/) define deploy execution, audit export and restore. This document has two parts. **Part I (sections 1–16)** is normative: a relay, client or CI hook built from it interoperates with any other conforming implementation. **Part II (sections 17–20)** describes harness bindings and is non-normative except where it says otherwise.
 
@@ -18,7 +18,7 @@ Optional normative [companion specifications](companions/) define deploy executi
 
 ## 1. Status and version
 
-This document specifies **crosstalk protocol 2.0**. The protocol version is independent of any package or binary version: the reference implementation may ship as 0.x or 3.x while speaking protocol 2.0. Section 15 defines how versions are discovered, negotiated, extended and retired. Section 16 is the protocol changelog.
+This document specifies **crosstalk protocol 2.0**, a draft that may change until release. A released version never changes. The protocol version is independent of any package or binary version: the reference implementation may ship as 0.x or 3.x while speaking protocol 2.0. Section 15 defines how versions are discovered, negotiated, extended and retired. Section 16 is the protocol changelog.
 
 ## 2. Conventions and terminology
 
@@ -36,7 +36,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | **Event** | A committed, immutable entry in a space's log, with a gap-free `seq`. |
 | **Receipt** | The relay's durable record of a command's outcome, keyed by `request_id`. |
 | **Resource key** | Canonical name of a coordinated thing, such as `path:api/x.py` or `env:prod` (5.4). |
-| **Lease** | An exclusive, expiring claim by one session on a set of resource keys, carrying a fence. |
+| **Lease** | An expiring claim by one session on a set of resource keys, carrying a fence. |
 | **Fence** | A per-space, strictly increasing integer given to each new lease. Targets reject operations with a stale fence. |
 | **Gate** | A pure, read-only evaluation (merge or deploy) that returns `pass`, `warn` or `block`. |
 | **Requirement** | A block on a gate scope created by an approval ask (9.1). |
@@ -104,7 +104,7 @@ A session is one conversation or job: `session:<uuid>` with owner principal, `to
 - When a session expires or is closed, the relay MUST release every lease it holds (events `lease` with `op: release`, actor `ci:relay`) before arbitrating any new claim.
 - Every lease and every reservation is held by a session, never by a principal.
 
-**Presence** is ephemeral: `working`, `waiting` or `offline`, plus a `doing` line of at most 280 characters (the relay substitutes the summary of the session's newest active intent when there is one). Clients SHOULD heartbeat every 30 s; presence expires 90 s after the last heartbeat. Presence is never written to the event log.
+**Presence** is ephemeral: `working`, `waiting` or `offline`, plus a `doing` line of at most 280 characters (the relay substitutes the note of the session's newest active shared lease when there is one). Clients SHOULD heartbeat every 30 s; presence expires 90 s after the last heartbeat. Presence is never written to the event log.
 
 ### 5.4 Resource keys
 
@@ -129,13 +129,15 @@ A session is one conversation or job: `session:<uuid>` with owner principal, `to
 
 `path:` and `tree:` names are repository-relative POSIX paths. **Overlap is compared case-insensitively** on the canonical key after Unicode case folding (implementations SHOULD fold by upper-casing and then lower-casing, which merges contextual forms). Two keys of a single request that fold to the same value are a duplicate and the request MUST be rejected with `invalid_resource`.
 
-### 5.5 Intents
+### 5.5 Work announcements
 
-An intent says "about to change X because Y": `intent_id`, `rev`, `state` (`active`, `done`, `abandoned`, `expired`), `summary` (1–280 characters), `resources` (1–64 keys), optional `reads` (map from key to the oid the agent read), and `expires_at`. Default lifetime is 3600 s. Intents warn; they never block anything. Only the session that posted an intent may update or close it. The relay MUST expire active intents whose `expires_at` has passed and emit the `expired` state.
+See shared leases in 5.6.
 
 ### 5.6 Leases and fences
 
-Leases are exclusive. One lease covers 1–64 keys and carries one fence.
+One lease covers 1–64 keys. Every lease view and event carries its mode and fence. The default mode is `exclusive`. A `shared` claim announces work and requires a `note` of 1–280 characters. Shared claims always succeed after validation and never cause conflicts. They reject environment keys (`invalid_resource`) and takeover expectations (`invalid_request`). Only exclusive leases participate in conflict and steal checks and may appear in `supersedes`. Shared fences are allocated normally and need no enforcement.
+
+Every successful claim, including renewal, returns `overlaps`: up to 20 active, unexpired leases of other sessions overlapping the requested resources, in creation order. Each entry has `lease_id`, display-form `holder`, `mode`, `note`, and `resources`.
 
 ```
             claim (no overlap)                release (holder)
@@ -146,29 +148,28 @@ Leases are exclusive. One lease covers 1–64 keys and carries one fence.
                               expired ──── claim by anyone ───► new lease, held,
                                            (supersedes old)     greater fence
   held/pending ── admin revoke, principal revoke, restore ──► revoked
-  env: claim ──► pending ── executor install ──► held
+  env: claim without enrolled executor ──► held
 ```
 
 | Transition | Preconditions | Result |
 |---|---|---|
-| **Acquire** | Caller is a session. No `pending` or `held`, unexpired lease overlaps any requested key. Checked in the same transaction as the grant. | New `lease_id`, `fence = ++fence_counter`, `rev = 1`, `expires_at = now + ttl`. State `held`, or `pending` for an `env:` key. Event `lease`/`acquire`. |
-| **Conflict** | An overlapping lease is `pending` or `held` and unexpired, and the caller is not its holder with the same key set. | Nothing changes. Error `conflict` with details (6.7). |
-| **Renew** | Same session, same canonical key set, lease unexpired by relay time. | Same fence, `rev + 1`, new deadline. **No event.** |
+| **Acquire** | Caller is a session. For an exclusive claim, no active, unexpired exclusive lease overlaps any requested key. Checked in the same transaction as the grant. | New `lease_id`, `fence = ++fence_counter`, `rev = 1`, `expires_at = now + ttl`. State `held`, or `pending` for an environment with an enrolled executor. Event `lease`/`acquire`. |
+| **Conflict** | Both leases are exclusive. An overlapping lease is `pending` or `held` and unexpired, and the caller is not its holder with the same key set. | Nothing changes. Error `conflict` with details (6.7). |
+| **Renew** | Same session, same canonical key set and mode, lease unexpired by relay time. | Same fence and acquire-time note, `rev + 1`, new deadline. To change the note, release and claim again. A different mode creates a new lease. **No event.** |
 | **Expire** | Relay time passes `expires_at`. | All checks treat the lease as expired immediately. The relay MUST write the `lease`/`expire` event within 5 s. Presence expiry alone never releases a lease. |
-| **Steal** | Every overlapping active lease has expired. For an `env:` key the claim MUST carry `expect: {lease_id, rev}` of the expired lease; other keys MAY be claimed without `expect`, including a narrower set. | New lease with a greater fence; `supersedes` is the replaced lease id, or an array of ids when several are replaced. The old lease is never revived. A held lease cannot be stolen. |
-| **Install** | `env:` lease is `pending`; the env's enrolled executor confirms it drained older operations and stored this fence (9.5.2). | `pending` → `held`, `rev + 1`. Event `lease`/`install`. A pending lease conflicts, expires and renews like a held one but cannot obtain a deploy ticket. |
+| **Steal** | Every overlapping exclusive lease has expired. For an `env:` key the claim MUST carry `expect: {lease_id, rev}` of the expired lease; other keys MAY be claimed without `expect`, including a narrower set. | New lease with a greater fence; `supersedes` is the replaced lease id, or an array of ids when several are replaced. The old lease is never revived. A held lease cannot be stolen. |
 | **Release** | The holder session, or a human of the same principal using the human key; lease still active and unexpired. | `released`, `rev + 1`. Event `lease`/`release`. |
 | **Revoke** | Admin with a reason; or principal/device revocation; or restore; or executor enrollment for that env. | `revoked`, `rev + 1`. Event `lease`/`revoke`. |
 
 **Fences.** One counter per space, shared by all keys, so a lease on `tree:api/` and a later one on `path:api/x.py` are ordered. Fences MUST NOT be reused and MUST stay at or below 2^53 − 1; at exhaustion the relay refuses claims with `conflict`.
 
-**Timing.** Default TTL 300 s; allowed 30–900 s. Clients SHOULD renew every `ttl/5` while the session is active (a hook event or tool call within the last 20 minutes) and SHOULD let leases lapse when idle. A clean session end SHOULD release all leases (`session.release`).
+**Timing.** Exclusive TTL is 30–900 s (default 300). Shared TTL is 30–3600 s (default 3600). The schema permits 3600 s and the relay rejects exclusive TTL above 900 s with `invalid_request`. Clients SHOULD renew every `ttl/5` while the session is active (a hook event or tool call within the last 20 minutes) and SHOULD let leases lapse when idle. A clean session end SHOULD release all leases (`session.release`).
 
 **Clocks.** Only the relay's clock decides expiry. Responses carry `expires_in_s`. A client MUST convert it to a local monotonic deadline minus a safety margin of `max(2 s, 10 %)` and MUST treat the lease as uncertain after that. The relay MUST stamp events with `max(now, last recorded_at)` so a backwards clock jump never reorders the log.
 
 **Relay restart.** Leases keep their persisted deadlines. Leases whose deadline passed while the relay was down are expired at startup.
 
-**Enforcement strength** is a property of the target, not of the lease. `path:`/`tree:` leases are advisory (hooks warn or ask). `branch:` is enforced where the merge gate runs on the shared remote (9.2). `env:` is enforced by the executor, provided every deploy path goes through it (9.5). Configured deploy commands are also gated by hooks on an unexpired, installed env lease held by the current session (17.4).
+**Enforcement strength** is a property of the target, not of the lease. `path:`/`tree:` leases are advisory (hooks warn or ask). `branch:` is enforced where the merge gate runs on the shared remote (9.2). A companion MAY add environment fencing. Configured deploy commands are gated by hooks on an unexpired, held env lease held by the current session (17.4).
 
 ### 5.7 Reservations
 
@@ -182,7 +183,7 @@ The inbox of a session holds messages addressed to its principal, to `all`, or t
 
 ### 5.9 Asks, answers and decisions
 
-An **ask** is a question to exactly one human: `ask_id`, `rev`, `kind` (`question` or `approval`), `to`, `question` (1–4096 characters), optional `options` (≤ 8 strings of ≤ 80 characters), `resources` (≤ 16 keys), `blocks` (≤ 8 scopes `merge:branch:<name>` or `deploy:env:<name>`, approval asks only), `bound_head`, `bound_artifact`, `state` and optional `deadline`.
+An **ask** is a question to exactly one human: `ask_id`, `rev`, `kind` (`question` or `approval`), `to`, `question` (1–4096 characters), optional `options` (≤ 8 strings of ≤ 80 characters), `resources` (≤ 16 keys), `blocks` (≤ 8 scopes `merge:branch:<name>`, `merge:target:<name>` or `deploy:env:<name>`, approval asks only), `bound_head`, `bound_artifact`, `state` and optional `deadline`.
 
 An ask has exactly three states: `open`, `answered`, `withdrawn`. Answering an open ask sets it to `answered`, including an approval rejection. The addressed human MAY answer an `answered` approval again; every answer creates a new decision for the same ask. Questions MUST be answered only once. Withdrawal ends the ask; an override is a separate decision and never removes a requirement.
 
@@ -192,7 +193,7 @@ An **answer** records the human's `choice` and optional `text`. A **decision** i
 
 ### 5.10 Branch status
 
-`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer. On this reuse path (not an owner or admin update), the relay MUST notify the previous owner, if still active, in the same transaction with a message naming the reclaiming principal and branch.
+`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the name is neither protected nor a policy merge target and the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer. An admin preserves ownership unless explicitly transferring it. A reclaimer always takes ownership personally. Whenever reuse changes ownership the relay MUST notify the previous owner in the same transaction with a message naming the reclaiming principal and branch.
 
 ### 5.11 Optional deployment records
 
@@ -200,7 +201,7 @@ Defined by the [deploy-executor companion](companions/deploy-executor.md).
 
 ### 5.12 Policy and reachability
 
-Policy lives in the relay, never in repository files: `protected_branches`, `gates.merge.unknown` (default `warn`), `gates.merge.unknown_source` (default `block`), `gates.merge.stale_ready` (default `warn`), and per env `require_on` (a branch name). `policy.set` merges the given fields into the stored policy.
+Policy lives in the relay, never in repository files: `sequences` (9.2), `protected_branches`, `gates.merge.unknown` (default `warn`), `gates.merge.unknown_source` (default `block`), `gates.merge.stale_ready` (default `warn`), and per env `require_on` (a branch name). `policy.set` merges the given fields into the stored policy.
 
 Reachability is the only git fact the relay uses: a set of `(ref, sha)` pairs supplied by `ci:remote` through `ref.advance` on every accepted update of a protected branch (commits `old..new`, chunked to fit 16 KiB), and once by an admin through `ref.seed`. Protected branches MUST reject non-fast-forward updates, so the set only grows. Ref names are stored without the `refs/heads/` prefix.
 
@@ -240,7 +241,7 @@ Paths below the space prefix unless they start with `/v2/` or `/.well-known/`.
 | `POST /enroll` | invitation code as bearer | Redeem an invitation: `{agentKey, humanKey}` (distinct, ≥ 32 chars; a ci principal uses only `agentKey`) → `{enrolled: true}`. Repeating with the same keys is idempotent; other keys are `not_authorized`. |
 | `POST /invitations` | human admin key | `{request_id, principal, role, code_hash, device?}`; `code_hash` is lowercase hex SHA-256 of the invitation code. Invitations expire after 24 h. |
 | `POST /sessions` | agent key, ci key | Open a session (6.4.1). |
-| `POST /sessions/{id}/heartbeat` | that session | `{state, doing?}` → `{heartbeat_s, leases: [{lease_id, expires_in_s}]}`. |
+| `POST /sessions/{id}/heartbeat` | that session | `{state, doing?}` → `{heartbeat_s, leases: [{lease_id, mode, expires_in_s}]}`. |
 | `POST /sessions/{id}/release` | that session | Same as command `session.release`; optional `request_id`. |
 | `POST /commands` | session, human key, ci key | All mutations (6.5, section 7). |
 | `GET /receipts/{request_id}` | same principal and session as the command | Outcome of an earlier command. |
@@ -261,7 +262,7 @@ Result: `{session_id, token, expires_at, heartbeat_s: 30, cursor}` where `cursor
 
 #### 6.4.2 Board
 
-The board is a read-only snapshot as of the envelope's `seq`. It contains at least: `frozen`; `coordination` (`intents` active, `branches`, `policy`); `presence`; `leases` (active ones plus recent tombstones); `asks` (open asks and approval asks that still form requirements, plus recent finished ones); `messages`, `decisions` (last 24 h); `reservations`; companion fields `deployments` (last 24 h), `live` and `audit` when implemented; and `more`, a map from collection name to `true` when entries were omitted. History collections hold at most 100 entries. Relevance sorting is a client concern.
+The board is a read-only snapshot as of the envelope's `seq`. It contains at least: `frozen`; `coordination` (`branches`, `policy`); `presence`; `leases` (active ones plus recent tombstones); `asks` (open asks and approval asks that still form requirements, plus recent finished ones); `messages`, `decisions` (last 24 h); `reservations`; companion fields `deployments` (last 24 h), `live` and `audit` when implemented; and `more`, a map from collection name to `true` when entries were omitted. History collections hold at most 100 entries. Relevance sorting is a client concern.
 
 ### 6.5 Commands, receipts and idempotency
 
@@ -305,7 +306,7 @@ Clients MUST deduplicate events by `id`, order them by `seq`, and SHOULD verify 
 | `rate_limited` | 429 | Over the caller's rate limit; `Retry-After` header in seconds. | Retry once if `Retry-After` fits the remaining budget. |
 | `internal_error` | 500 | Relay failure. The response MUST NOT leak internals. | Retry with the same `request_id`. |
 
-`conflict` details for a lease: `{collisions: [{mine, held}], holder (display form), session, lease_id, rev, note, intent (holder's newest intent summary or null), age_s, expires_at, expires_in_s}`. `stale_revision` after a failed steal carries `{lease_id, rev}` of the newest overlapping lease. Unknown codes MUST be handled by HTTP status class (15.4).
+`conflict` details for a lease: `{collisions: [{mine, held}], holder (display form), session, lease_id, rev, note, doing (holder’s current presence doing line or null), age_s, expires_at, expires_in_s}`. `stale_revision` after a failed steal carries `{lease_id, rev}` of the newest overlapping lease. Unknown codes MUST be handled by HTTP status class (15.4).
 
 ### 6.8 Rate limits and timeouts
 
@@ -319,9 +320,7 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v2/command.json`. The relay 
 
 | Op | Allowed for | Args (required **bold**) | Effect and events | Notable errors |
 |---|---|---|---|---|
-| `intent.post` | session | **`summary`**, **`resources`**, `intent_id` (update an own active intent), `reads`, `ttl_s` (≥ 1, default 3600) | Create or update; `rev + 1`. Event `intent`. | `not_found` (unknown `intent_id`), `not_authorized` (other session's intent), `stale_revision` |
-| `intent.close` | owning session | **`intent_id`**, `state` (`done` default, or `abandoned`) | Event `intent` with the final state. | as above |
-| `lease.claim` | session | **`resources`** (1–64 keys, no `seq:`, an `env:` key alone), `ttl_s` (30–900, default 300), `note` (≤ 280), `expect` `{lease_id, rev}` | Acquire, renew or steal (5.6). Result: the lease view `{lease_id, holder, resources, state, fence, rev, note, supersedes, expires_at, expires_in_s}`. Event `lease`/`acquire` (none on renew). | `conflict`, `stale_revision`, `invalid_resource` |
+| `lease.claim` | session | **`resources`** (1–64 keys, no `seq:`, an `env:` key alone), `mode`, `ttl_s` (5.6), `note` (≤ 280), `expect` `{lease_id, rev}` | Acquire, renew or steal (5.6). Result: the lease view `{lease_id, holder, resources, mode, overlaps, state, fence, rev, note, supersedes, expires_at, expires_in_s}`. Event `lease`/`acquire` (none on renew). | `conflict`, `stale_revision`, `invalid_resource` |
 | `lease.release` | holder session; same principal via human key | **`lease_id`** | Event `lease`/`release`. | `not_found`, `not_authorized`, `stale_revision` (not active) |
 | `session.release` | the session itself | **`session`** (own id) | Release all its leases (one `lease`/`release` event each), presence `offline`. | `not_authorized` |
 | `reserve` | session (take); holder's principal or admin (abandon) | **`sequence`** (`seq:` key), `floor` (≥ 0), `note`, `abandon` (value) | Take: result `{value}`, event `reservation`. Abandon: event `reservation` with the abandoned value, result `{value, abandoned: true}`; repeating is a no-op. | `frozen`, `not_found` (abandon) |
@@ -335,7 +334,7 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v2/command.json`. The relay 
 |---|---|---|---|---|
 | `ask.open` | session, human key, ci key | **`kind`**, **`to`** (enrolled active human), **`question`**, `options`, `resources`, `blocks` (approval only), `bound_head`, `bound_artifact`, `deadline` (future) | Event `ask` (`open`, `rev 1`). An approval ask with `blocks` creates one requirement per ask (9.1). The relay MUST reject a blocking approval ask without `bound_head`, or a `deploy:` scope without `bound_artifact`, with `invalid_request`. | `not_found`, `invalid_request` |
 | `ask.answer` | **the addressed human, human key only** | **`ask_id`**, **`choice`**, `text`, `bound_head`, `bound_artifact`; `expect_rev` required | Open ask → `answered`; answered approvals MAY be answered again. Approval choice MUST be `approve` or `reject`; question choice MUST be an option when options exist. Atomically emit `ask`, `answer`, an approval `decision` at the ask's bound revision, and a `message` to the asker in thread `ask_id`. Supplying bound fields rebinds the ask and requires an approval with `choice: approve` and a non-null `bound_head`; deploy scopes additionally require `bound_artifact` in the args. Omitted bound fields retain the existing binding. | `not_authorized`, `stale_revision`, `invalid_request` |
-| `ask.withdraw` | addressed human or admin with a human key; asking principal only when `blocks` is absent or empty | **`ask_id`**, `reason`; `expect_rev` required | Any non-withdrawn ask → `withdrawn`. Events `ask` and `admin`/`requirement_withdrawn`. An agent MUST NOT withdraw a blocking ask. | `not_authorized`, `stale_revision` |
+| `ask.withdraw` | addressed human or admin with a human key; asking principal only when `blocks` is absent or empty | **`ask_id`**, `reason`; `expect_rev` required | Any non-withdrawn ask → `withdrawn`. Event `ask`. Emit `admin`/`requirement_withdrawn` only when the ask had blocking scopes. An agent MUST NOT withdraw a blocking ask. | `not_authorized`, `stale_revision` |
 | `override.record` | human key | **`scope`** (`merge:branch:<b>` or `merge:target:<t>`), **`bound_head`**, **`reason`** (1–280) | Event `decision` (`source.kind: override`, `verdict: approve`), a `message` to the branch owner, event `admin`/`override_recorded`. An override never satisfies a requirement. | `not_authorized`, `invalid_request` |
 
 ### 7.3 Optional deploy commands
@@ -350,8 +349,8 @@ Defined by the [deploy-executor companion](companions/deploy-executor.md).
 | `principal.revoke` | admin | **`principal`**, `reason`, `device` | Revoke credentials, close sessions, revoke leases (5.2). Events `lease`/`revoke` and `admin`/`principal_revoked`. |
 | `lease.revoke` | admin | **`lease_id`**, **`reason`** | Event `lease`/`revoke`; the reason becomes the lease note. |
 | `space.freeze` | admin | `reason` | Event `admin`/`gates_frozen`. |
-| `space.unfreeze` | admin | `reason` | Refused (`conflict`) while any executor is still pinned to an older epoch. Event `admin`/`gates_unfrozen`. |
-| `policy.set` | admin | `protected_branches`, `gates.merge.{unknown, unknown_source, stale_ready}`, `envs.<env>.require_on` | Merge into the policy. Event `admin`/`policy_set` with the resulting policy as `subject`. |
+| `space.unfreeze` | admin | `reason` | A companion MAY add recovery preconditions. Event `admin`/`gates_unfrozen`. |
+| `policy.set` | admin | `sequences` (9.2), `protected_branches`, `gates.merge.{unknown, unknown_source, stale_ready}`, `envs.<env>.require_on` | Merge into the policy. Event `admin`/`policy_set` with the resulting policy as `subject`. |
 | `ref.advance` | `ci:remote`, ci key direct | **`ref`**, **`old`**, **`new`**, **`commits`** | Add `(ref, sha)` pairs to reachability. No event. |
 | `ref.seed` | admin | **`ref`**, **`commits`** | As `ref.advance`; event `admin`/`ref_seeded`. |
 
@@ -374,7 +373,7 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v2/event.json`. Every event 
 | `prev_hash`, `hash` | Hash chain (8.2). |
 | `body` | One of the body types in 8.3, discriminated by `body.type`. |
 
-Free-text fields (`summary`, `note`, `question`, answer `text`, `rationale`, message `parts`, `pending`, `reason`) are display-only. No conforming implementation may derive an action from them.
+Free-text fields (`note`, `question`, answer `text`, `rationale`, message `parts`, `pending`, `reason`) are display-only. No conforming implementation may derive an action from them.
 
 ### 8.2 Hash chain and ordering
 
@@ -388,22 +387,21 @@ Interoperability test vectors for this chain are listed in Appendix C.
 
 | `body.type` | Produced by |
 |---|---|
-| `intent` | `intent.post`, `intent.close`, relay expiry (`state: expired`) |
 | `branch_status` | `branch.set`; the server resolves Git revisions in the worktree to full oids first |
-| `lease` (`op` = `acquire`, `install`, `release`, `expire`, `revoke`) | `lease.claim` (acquire or steal; `supersedes` set on a steal), `/executor/install` (install), `lease.release`, `session.release` and session expiry (release), relay expiry (expire), `lease.revoke`, `principal.revoke`, `executor.enroll`, restore (revoke) |
+| `lease` (`op` = `acquire`, `install`, `release`, `expire`, `revoke`) | `lease.claim` (acquire or steal; `supersedes` set on a steal), `lease.release`, `session.release` and session expiry (release), relay expiry (expire), `lease.revoke` and `principal.revoke` (revoke). A companion MAY add installation and revocation transitions |
 | `reservation` | `reserve` (take and abandon) |
 | `message` | `message.send`; also generated by `ask.answer` and `override.record` |
 | `ask` | `ask.open`, `ask.answer`, `ask.withdraw` |
 | `answer` | `ask.answer` |
 | `decision` | `ask.answer` on approval asks, `override.record` |
 | `deployment` | Deploy-executor companion: `deployment.record`, `env.adopt` |
-| `admin` (`action`) | `principal.invite` and bootstrap (`principal_enrolled`), `principal.revoke` (`principal_revoked`), restore companion (`epoch_started`, `gates_frozen`), `space.freeze`/`space.unfreeze` (`gates_frozen`/`gates_unfrozen`), `ask.withdraw` (`requirement_withdrawn`), `override.record` (`override_recorded`), deploy-executor companion `executor.enroll` (`executor_enrolled`), `policy.set` (`policy_set`), `ref.seed` (`ref_seeded`). `lease_installed` is reserved. |
+| `admin` (`action`) | `principal.invite` and bootstrap (`principal_enrolled`), `principal.revoke` (`principal_revoked`), `space.freeze`/`space.unfreeze` (`gates_frozen`/`gates_unfrozen`), withdrawal of a blocking ask (`requirement_withdrawn`), `override.record` (`override_recorded`), `policy.set` (`policy_set`), `ref.seed` (`ref_seeded`). A companion MAY define additional admin actions. |
 
 Not events: presence, heartbeats, lease renewals, inbox cursors, reachability from `ref.advance`.
 
 ## 9. Gates
 
-`check` returns `{verdict: pass|warn|block, reasons: [string], contacts: [principal]}`. Gates are pure functions over a read-only snapshot (branch status, leases, asks, decisions, optional live state, policy, reachability, frozen flag) and an explicit time. They never read free text. The relay MUST evaluate the same function for `/check`, for the remote hook and for deploy authorization. `/check` on a frozen space returns the error `frozen`.
+`check` returns `{verdict: pass|warn|block, reasons: [string], contacts: [principal]}`. Gates are pure functions over a read-only snapshot (branch status, leases, asks, decisions, policy, reachability, frozen flag) and an explicit time. They never read free text. Remote hooks and companions MUST use the same relay gate verdict as `/check`. `/check` on a frozen space returns the error `frozen`.
 
 Check input (schema: gate input, Appendix A): `{kind: "merge", source_branch, source_head, target_branch}`, or `{kind: "merge", source_head, target_branch, unknown_source: true}`, or `{kind: "deploy", env, sha, artifact, lease_id, fence, holder}`. The relay supplies `space` and `now`.
 
@@ -415,15 +413,17 @@ Check input (schema: gate input, Appendix A): `{kind: "merge", source_branch, so
 
 ### 9.2 Merge gate
 
+When relay policy `sequences` is set, remote and CI gates MUST reject a proposed protected target tree containing two paths with the same number in one sequence and name both paths. Each named path glob has one decimal capture, e.g. `db/migrations/(\d+)_*.sql`. A star matches within one path component. Leading zeros do not distinguish numbers. For a named sequence, clients use its relay pattern for local reservation floors and creation checks when available.
+
 Rules per source, in order; the first `block` wins:
 
 1. Any unsatisfied requirement on `merge:branch:<source>` → **block**, contacts = the addressed humans.
 2. Branch status of the source: `ready` at exactly `source_head` → pass; `wip` or `draft` → **block** naming owner and pending items; `ready` at another head → policy `stale_ready`; no status → policy `unknown`.
 3. An override decision with scope `merge:branch:<source>` bound to `source_head` turns a rule-2 block into pass. It never affects rule 1.
 
-For an unknown source the verdict is policy `unknown_source` (default block), unless requirements block first, and an override with scope `merge:target:<target>` bound to the pushed `new` admits exactly that push.
+For an unknown source the verdict is policy `unknown_source` (default block), unless requirements on the target scope alone block first, and an override with scope `merge:target:<target>` bound to the pushed `new` admits exactly that push.
 
-**Resolving sources at the remote** (CI/remote hook class). The `pre-receive` hook receives every ref update of a push at once. For each update `old → new` of a protected branch, evaluated against ref values *after* the push:
+**Resolving sources at the remote** (CI/remote hook class). The `pre-receive` hook receives every ref update of a push at once. For each update `old → new` of a protected branch, evaluated against ref values *after* the push, excluding temporary merge-queue refs under `gh-readonly-queue/`:
 
 - `new` equals the tip of one or more non-protected branches → each is a source with `source_head = new`;
 - `new` is a merge commit whose first parent is reachable from `old` → every other parent MUST equal the tip of one or more non-protected branches, each such branch being a source with `source_head` = that parent;
@@ -435,6 +435,8 @@ Only the draft head or tip is tracked: cherry-picks and merges of older draft co
 Every source is evaluated; any `block` rejects the whole push. Non-fast-forward updates of protected branches MUST be rejected. Ref names are handled as bytes. If the relay cannot be reached or answers an error, the hook MUST reject (fail closed). After acceptance, `post-receive` MUST send `ref.advance` and SHOULD notify owners once when a `wip`/`draft` head became reachable from a protected branch.
 
 ### 9.3 Deploy gate
+
+Without an enrolled executor the relay grants the environment lease held immediately. An enrolled companion MAY require installation before the lease becomes held and add live-state checks.
 
 1. The lease `lease_id` covers exactly `env:<env>`, is `held`, unexpired, carries `fence`, and is held by session `holder` → else **block**.
 2. Any unsatisfied requirement on `deploy:env:<env>` for this `sha` and `artifact` → **block**.
@@ -508,9 +510,9 @@ See 6.5 and 6.8. A client MUST NOT complete a claim "in the background" and assu
 | Function | Required behaviour |
 |---|---|
 | Board, injections | Cached view, labelled with its age. Cached data MUST identify itself as offline. |
-| Messages, intents, asks from an agent | MAY be queued per session and sent under that same session on reconnect; MUST NOT be rebound to another session. |
-| Heartbeats, renewals | Not queued; leases are revalidated on reconnect. |
-| Claims, reservations | Fail as "unknown". Reservations MUST NOT be made offline. |
+| Messages, shared claims, asks from an agent | MAY be queued per session and sent under that same session on reconnect; MUST NOT be rebound to another session. |
+| Heartbeats, exclusive renewals | Not queued; leases are revalidated on reconnect. |
+| Exclusive claims, reservations | Fail as "unknown". Reservations MUST NOT be made offline. |
 | Edit warnings (`path:`/`tree:`) | Fail open with a visible warning. |
 | Merge and deploy gates | **Fail closed.** The remote hook rejects; the executor refuses. |
 
@@ -600,7 +602,7 @@ Minor versions are additive and backward compatible in both directions:
 - new values in the **open enums**: `admin.action`, error codes, message part `kind` (session and actor `tool` are free identifiers, 5.3, and need no minor version);
 - relaxed limits (larger maxima, more items).
 
-A minor version MUST NOT: remove or rename anything; make an optional field required; change the meaning, unit or format of an existing field; tighten a limit; add values to a **closed enum** (lease `state` and `op`, ask `state` and `kind`, branch `state`, decision `verdict`, deployment `outcome`, gate `verdict`, `via`); change hash, signature or canonicalization rules; or change a gate's outcome for inputs that a previous minor could express.
+A minor version MUST NOT: remove or rename anything; make an optional field required; change the meaning, unit or format of an existing field; tighten a limit; add values to a **closed enum** (lease `mode`, `state` and `op`, ask `state` and `kind`, branch `state`, decision `verdict`, gate `verdict`, `via`); change hash, signature or canonicalization rules; or change a gate's outcome for inputs that a previous minor could express.
 
 ### 15.4 Receiver rules
 
@@ -643,15 +645,16 @@ Anything that should become part of the protocol is proposed as a new minor vers
 
 ### 2.0 (2026-11-17)
 
+- Shared and exclusive leases use one lifecycle. Shared claims report work, can queue offline, and never block peers. Successful claims report overlapping work. Environment claims become held immediately when there is no enrolled executor.
 - New major: `/v2`, envelope `v: 2`, v2 schema IDs and audit ref; immutable 1.0 snapshots retained. Protocol 1.0 had no deployments or users, so the reference relay does not serve it alongside 2.0; `/v1/` requests return `unsupported_version` (exception to the SHOULD in 15.6).
 - Removed ask cancellation, rejection/expiry states and expiry sweep, `reaffirm`, branch `cleared`, the unused `executor.reconcile` wire op, and A2A claims. Approval answers may repeat and rebind; the newest decision controls each requirement. Askers may withdraw only unblocking asks; deadlines are informational.
 - Moved deployment execution, audit export and backup restore to optional normative companions. The no-live-state deploy block applies only to environments with an enrolled executor.
-- Published portable canonical JSON, event hash, resource key, signature and merge-gate test vectors (Appendix C).
-- Remote hooks and GitHub required checks inspect draft ancestry; ready branch names may be reused after merge. Expanded sanitizer Unicode ranges and shell classification; configured deploy commands require session-held env leases; sequence-file creation checks reservation ownership and abandonment.
+- Added portable canonical JSON, event hash, resource key, signature and merge-gate test vectors (Appendix C).
+- Remote hooks and GitHub required checks inspect draft ancestry; temporary queue refs are excluded. Only eligible topic branch names may be reclaimed after merge. Unknown sources check target requirements. Sequence policies reject duplicate numbers in the proposed tree. Expanded sanitizer Unicode ranges and shell classification; configured deploy commands require session-held env leases; sequence-file creation checks reservation ownership and abandonment.
 
 ### 1.0 (2026-11-17)
 
-First published version. Defines spaces, principals, sessions, resource keys with case-insensitive overlap, intents, leases with fencing and install, reservations, messages, asks, answers, decisions, branch status, deployment records and live state; the HTTP binding under `/v1`; the command set of section 7; the event envelope `v: 1` with SHA-256/JCS hash chain; merge and deploy gates, tickets and authorizations; the audit export on `refs/crosstalk/audit/v1`; version discovery (`/.well-known/crosstalk`) and the `Crosstalk-Protocol` header.
+First published version. Defines spaces, principals, sessions, resource keys with case-insensitive overlap, leases with fencing and install, reservations, messages, asks, answers, decisions, branch status, deployment records and live state; the HTTP binding under `/v1`; the command set of section 7; the event envelope `v: 1` with SHA-256/JCS hash chain; merge and deploy gates, tickets and authorizations; the audit export on `refs/crosstalk/audit/v1`; version discovery (`/.well-known/crosstalk`) and the `Crosstalk-Protocol` header.
 
 ---
 
@@ -667,9 +670,9 @@ A harness binding maps the harness's own hook points onto five generic events. A
 
 | Generic event | Client action | Budget |
 |---|---|---|
-| `session_start` | Open or resume the session (token cached by harness session id), heartbeat, inject a board digest: active peers, leases and intents overlapping this worktree's branch and recently touched paths, branch statuses of the current branch and its merge target, open asks to this human, bounded unread messages | 2 s; on timeout inject the cached digest with its age |
+| `session_start` | Open or resume the session (token cached by harness session id), heartbeat, inject a board digest: active peers, leases of both modes overlapping this worktree's branch and recently touched paths, branch statuses of the current branch and its merge target, open asks to this human, bounded unread messages | 2 s; on timeout inject the cached digest with its age |
 | `before_prompt` | Inject only what is new since the session's cursor and relevant to it; nothing if nothing changed | 1 s; cache plus one refresh attempt |
-| `before_action` | Edits: check paths against others' leases (warn or ask), record touched paths. Shell: classify the command (merge-like, deploy-like, human-only `xt`) and run the matching gate | 1.5 s per gate decision inside a ≤ 5 s harness timeout |
+| `before_action` | Edits: check paths against others' leases (shared: warn only; exclusive: warn or ask), record touched paths. Shell: classify the command (merge-like, deploy-like, human-only `xt`) and run the matching gate | 1.5 s per gate decision inside a ≤ 5 s harness timeout |
 | `turn_end` | Flush the outbox, presence `waiting`, mark activity time for renewals | 1 s |
 | `session_end` | Send one `session.release`; otherwise let leases expire | 800 ms |
 
@@ -698,7 +701,7 @@ Any MCP client can use crosstalk through an MCP stdio server (reference: `xt mcp
 | Tool | Maps to |
 |---|---|
 | `board` | `GET /board` |
-| `announce` | `intent.post`; with `close: true`, `intent.close` |
+| `announce` | `lease.claim` in shared mode; with `close: true` and `lease_id`, `lease.release` |
 | `claim` | `lease.claim` |
 | `release` | `lease.release` |
 | `reserve` | `reserve` |

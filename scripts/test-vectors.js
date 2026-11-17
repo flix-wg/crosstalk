@@ -40,6 +40,7 @@ const input = { kind: 'merge', space, now: 0, source_branch: 'work', source_head
 const cases = [
   ['draft', branch('draft')], ['ready', branch()], ['stale', branch('ready', next)], ['unknown status', null],
   ['unknown source', null, [], [], {}, { kind: 'merge', space, now: 0, source_head: head, target_branch: 'main', unknown_source: true }],
+  ['unknown source target requirement', null, [{ ...ask(), blocks: ['merge:target:main'] }], [], { gates: { merge: { unknown_source: 'pass' } } }, { kind: 'merge', space, now: 0, source_head: head, target_branch: 'main', unknown_source: true }],
   ['open requirement', branch(), [ask()]],
   ['approved requirement', branch(), [ask('answered')], [decision('approve')]],
   ['latest reject', branch(), [ask('answered', head, 3)], [decision('approve'), decision('reject')]],

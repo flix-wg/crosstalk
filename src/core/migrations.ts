@@ -62,6 +62,7 @@ const migrations = [
     "CREATE INDEX events_time ON events(space, json_extract(event, '$.recorded_at'), seq)",
     "CREATE INDEX decisions_seq ON decisions(space, seq)",
   ],
+  ["DROP TABLE intents", "ALTER TABLE leases ADD COLUMN mode TEXT NOT NULL DEFAULT 'exclusive'"],
 ];
 export function migrate(tx: SqlTx): void {
   tx.run("CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY)");

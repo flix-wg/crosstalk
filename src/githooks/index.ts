@@ -1,15 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { loadConfig, loadAgentKey, credentialScope, RelayClient, render, Workspace, editConflicts, reservationConflicts, resolveSources, draftSources, checkMergeSources, advance, stableId } from "../client/index.js";
+import { git, zero, name, ancestor, duplicateSequence, loadConfig, loadAgentKey, credentialScope, RelayClient, render, Workspace, editConflicts, reservationConflicts, resolveSources, draftSources, checkMergeSources, advance, stableId } from "../client/index.js";
 import type { CoordinationBoard } from "../client/index.js";
 import type { Update } from "../client/index.js";
 export type { Update } from "../client/index.js";
 export { resolveSources } from "../client/index.js";
 export interface GitHookResult { stdout: string; exitCode: number }
 export interface GitHookOptions { cwd?: string; client?: RelayClient; advisory?: boolean }
-const zero = (s: string) => /^0+$/.test(s);
-const name = (s: string) => s.replace(/^refs\/heads\//, "");
-function git(cwd: string, ...args: string[]): string { return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000, env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" }, maxBuffer: 64 * 1024 * 1024 }).trim(); }
-function ancestor(cwd: string, a: string, b: string): boolean { try { git(cwd, "merge-base", "--is-ancestor", a, b); return true; } catch { return false; } }
 export function parseUpdates(input: string | Buffer): Update[] {
   // Git's wire format is bytes, with ASCII separators; Unicode whitespace is a valid ref character.
   const text = Buffer.isBuffer(input) ? input.toString("latin1") : Buffer.from(input).toString("latin1");
@@ -51,6 +47,8 @@ export async function runPreReceive(input: string | Buffer | Update[], options: 
       }
       if (!u.ref.startsWith("refs/heads/") || !protectedBranches.has(name(u.ref))) continue;
       if (zero(u.new) || (!zero(u.old) && !ancestor(cwd, u.old, u.new))) return { exitCode: 1, stdout: render({ branch: name(u.ref), error: "Non-fast-forward protected branch update rejected" }, { hooks: false, peer: false }) };
+      const duplicate = duplicateSequence(cwd, u.new, board.coordination.policy.sequences);
+      if (duplicate) return { exitCode: 1, stdout: render({ error: duplicate }, { hooks: false }) };
       const sources = resolveSources(cwd, u, refs, protectedBranches);
       sources.push(...draftSources(cwd, u, refs, board.coordination.branches, sources));
       const result = await checkMergeSources(client, name(u.ref), sources);
@@ -105,10 +103,10 @@ export async function runPreCommit(cwd = process.cwd()): Promise<GitHookResult> 
     const board = (await client.board()).response.result as CoordinationBoard;
     const paths = execFileSync("git", ["-C", cwd, "diff", "--cached", "--name-only", "-z"], { encoding: "utf8", timeout: 1000 }).split("\0").filter(Boolean);
     const added = execFileSync("git", ["-C", cwd, "diff", "--cached", "--diff-filter=A", "--name-only", "-z"], { encoding: "utf8", timeout: 1000 }).split("\0").filter(Boolean);
-    const reservations = await reservationConflicts(client, added);
+    const reservations = await reservationConflicts(client, added, board.coordination.policy?.sequences);
     if (reservations.length) return { exitCode: w.config.strict ? 1 : 0, stdout: render(reservations, { hooks: false }) };
     const conflicts = editConflicts(board, paths, record.session_id);
-    return { exitCode: conflicts.length && w.config.strict ? 1 : 0, stdout: conflicts.length ? render({ warning: "Staged paths overlap other sessions' leases", conflicts }, { hooks: false }) : "" };
+    return { exitCode: conflicts.some(l => l.mode !== "shared") && w.config.strict ? 1 : 0, stdout: conflicts.length ? render({ warning: "Staged paths overlap other sessions' leases", conflicts }, { hooks: false }) : "" };
   } catch { return { exitCode: w?.config.strict ? 1 : 0, stdout: "crosstalk: lease checks unavailable" }; }
   finally { w?.close(); }
 }

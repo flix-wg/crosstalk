@@ -59,9 +59,11 @@ test("upgrade preserves executor binding, scopes old receipts and keeps revoked 
         appendEvent(tx, ctx, space, { principal: "human:test", via: direct ? "human-tty" : "agent", ...(direct ? {} : { session }) }, direct ? directId : sessionId, { type: "admin", action: "policy_set" });
         return ok(tx, space, { holder: session });
       });
-      for (const index of ["credential_device", "sessions_expiry", "intents_expiry", "asks_expiry", "decisions_seq", "events_time", "events_request"]) tx.run("DROP INDEX " + index);
+      for (const index of ["credential_device", "sessions_expiry", "asks_expiry", "decisions_seq", "events_time", "events_request"]) tx.run("DROP INDEX " + index);
       for (const table of ["audit_checkpoints"]) tx.run("DROP TABLE " + table);
-      for (const table of ["intents", "asks"]) for (const column of ["status", "expires"]) tx.run("ALTER TABLE " + table + " DROP COLUMN " + column);
+      for (const table of ["asks"]) for (const column of ["status", "expires"]) tx.run("ALTER TABLE " + table + " DROP COLUMN " + column);
+      tx.run("ALTER TABLE leases DROP COLUMN mode");
+      tx.run("CREATE TABLE intents(body TEXT NOT NULL)");
       tx.run("ALTER TABLE principals DROP COLUMN generation");
       tx.run("ALTER TABLE credentials DROP COLUMN device");
       tx.run("ALTER TABLE credentials DROP COLUMN revoked");

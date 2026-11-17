@@ -88,22 +88,22 @@ test("two connections make 100 interleaved overlapping claims each with only one
       const attempt = other.tx(tx => execute(tx, f.ctx, b, {
         request_id: randomUUID(), op: "lease.claim", args: { resources: [i % 2 ? "path:API/X.py" : "tree:Api/"] },
       }));
-      expect(attempt).toMatchObject({ error: { code: "conflict", details: { lease_id: held.lease_id, intent: null, expires_in_s: 300 } } });
+      expect(attempt).toMatchObject({ error: { code: "conflict", details: { lease_id: held.lease_id, doing: null, expires_in_s: 300 } } });
       const renewed = value<LeaseResult>(f.command(a, "lease.claim", { resources: [i % 2 ? "tree:API/" : "tree:api/"] }));
       expect(renewed).toMatchObject({ lease_id: held.lease_id, fence: held.fence, rev: i + 2 });
       expect(f.store.tx(tx => tx.all("SELECT * FROM leases WHERE state='held'"))).toHaveLength(1);
     }
-    value(f.command(a, "intent.post", { summary: "older", resources: ["tree:api/"] }));
+    value(f.command(a, "lease.claim", { mode: "shared", note: "older", resources: ["tree:api/"] }));
     f.setTime(1_000_001);
-    value(f.command(a, "intent.post", { summary: "newest", resources: ["tree:api/"] }));
+    value(f.command(a, "lease.claim", { mode: "shared", note: "newest", resources: ["path:api/x"] }));
     expect(f.command(b, "lease.claim", { resources: ["path:api/x.py"] }))
-      .toMatchObject({ error: { details: { intent: "newest" } } });
+      .toMatchObject({ error: { details: { doing: "newest" } } });
     // A literal SQL wildcard in a key must not overlap a different filename.
     value(f.command(b, "lease.claim", { resources: ["tree:a%/"] }));
     value(f.command(a, "lease.claim", { resources: ["path:abc/file"] }));
     expect(f.command(b, "lease.claim", { resources: ["tree:ab/"] })).toHaveProperty("result");
     const log = value<unknown[]>(f.store.tx(tx => query(tx, { kind: "events", space: f.space })));
-    expect(log).toHaveLength(7); // bootstrap, two intents and four acquisitions; renewals have no events.
+    expect(log).toHaveLength(7); // bootstrap, two shared and four exclusive acquisitions; renewals have no events.
   } finally { other.close(); f.store.close(); rmSync(dir, { recursive: true }); }
 }, 180_000);
 
@@ -134,6 +134,28 @@ test("renewal loses at the deadline; stealing uses the old revision and a greate
     f.setTime(1_359_999);
     expect(f.store.tx(tx => sweep(tx, f.ctx))).toHaveLength(1);
     expect(f.store.tx(tx => sweep(tx, f.ctx))).toHaveLength(0);
+  } finally { f.store.close(); }
+});
+
+test("shared and exclusive claims report peers without blocking each other", () => {
+  const f = setup();
+  try {
+    const a = f.session(f.key("human:admin", "agent")), b = f.session(f.key("human:admin", "agent"));
+    const args = { mode: "shared", resources: ["tree:api/"], note: "Review" };
+    const shared = value<LeaseResult>(f.command(a, "lease.claim", args));
+    expect(f.command(b, "lease.claim", { resources: ["path:api/file"] })).toMatchObject({
+      result: { mode: "exclusive", overlaps: [{ lease_id: shared.lease_id, mode: "shared", note: "Review" }] },
+    });
+    expect(f.command(a, "lease.claim", { ...args, resources: ["path:api/file"] })).toMatchObject({
+      result: { mode: "shared", overlaps: [{ mode: "exclusive" }], supersedes: null },
+    });
+    expect(f.command(a, "lease.claim", { ...args, note: "Changed" })).toMatchObject({
+      result: { lease_id: shared.lease_id, mode: "shared", note: "Review", rev: 2, overlaps: [{ mode: "exclusive" }] },
+    });
+    expect(f.command(a, "lease.claim", { ...args, resources: ["env:prod"] })).toMatchObject({ error: { code: "invalid_resource" } });
+    expect(f.command(a, "lease.claim", { ...args, expect: { lease_id: shared.lease_id, rev: 2 } })).toMatchObject({ error: { code: "invalid_request" } });
+    expect(f.command(a, "lease.claim", { resources: ["path:x"], ttl_s: 901 })).toMatchObject({ error: { code: "invalid_request" } });
+    expect(f.command(a, "lease.claim", { resources: ["env:prod"] })).toMatchObject({ result: { state: "held" } });
   } finally { f.store.close(); }
 });
 
@@ -303,7 +325,7 @@ test("board history is capped while live leases remain visible; sweeps use expir
     value(f.command(agent, "lease.claim", { resources: ["tree:src/"] }));
     const board = value<{ messages: unknown[]; leases: unknown[]; more: Record<string, boolean> }>(f.store.tx(tx => query(tx, { kind: "board", space: f.space, now: f.ctx.now() })));
     expect(board.messages).toHaveLength(100); expect(board.more.messages).toBe(true); expect(board.leases).toHaveLength(1);
-    for (const [table, state] of [["intents", "active"], ["asks", "open"]]) {
+    for (const [table, state] of [["asks", "open"]]) {
       const plan = f.store.tx(tx => tx.all<{ detail: string }>(`EXPLAIN QUERY PLAN SELECT * FROM ${table} WHERE status=? AND expires<=?`, state, f.ctx.now()));
       expect(plan.map(p => p.detail).join(" ")).toContain(table + "_expiry");
     }

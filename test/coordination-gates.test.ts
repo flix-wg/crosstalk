@@ -55,14 +55,14 @@ test("reservation rounds respect floors, retry receipts and permanent abandoned 
     expect(value(f.command(b, "reserve", { sequence: "seq:alembic", floor: 1 }))).toEqual({ value: 30 });
   } finally { other.close(); f.store.close(); rmSync(dir, { recursive: true }); }
 }, 60_000);
-test("coordination ownership, intent expiry, inbox cursors and remote-only reachability", () => {
+test("coordination ownership, shared lease expiry, inbox cursors and remote-only reachability", () => {
   const f = setup();
   try {
     value(f.command(f.admin, "principal.invite", { principal: "human:other", role: "member" }));
     const a = f.session(f.key("human:admin", "agent")), b = f.session(f.key("human:other", "agent"));
-    expect(f.command(a, "intent.post", { summary: "work", resources: ["tree:src/"], ttl_s: 1e15 })).toMatchObject({ error: { code: "invalid_request" } });
-    const intent = value<{ intent_id: string }>(f.command(a, "intent.post", { summary: "work", resources: ["tree:src/"], ttl_s: 1 }));
-    expect(f.command(b, "intent.close", { intent_id: intent.intent_id })).toMatchObject({ error: { code: "not_authorized" } });
+    expect(f.command(a, "lease.claim", { mode: "shared", note: "work", resources: ["tree:src/"], ttl_s: 1e15 })).toMatchObject({ error: { code: "invalid_request" } });
+    const shared = value<{ lease_id: string }>(f.command(a, "lease.claim", { mode: "shared", note: "work", resources: ["tree:src/"], ttl_s: 30 }));
+    expect(f.command(b, "lease.release", { lease_id: shared.lease_id })).toMatchObject({ error: { code: "not_authorized" } });
     value(f.command(a, "branch.set", { branch: "work", head, state: "draft" }));
     expect(f.command(b, "branch.set", { branch: "work", head, state: "ready" })).toMatchObject({ error: { code: "not_authorized" } });
     value(f.command(a, "branch.set", { branch: "work", head, state: "ready", owner: "human:other" }));
@@ -78,8 +78,8 @@ test("coordination ownership, intent expiry, inbox cursors and remote-only reach
     expect(f.store.tx(tx => tx.all("SELECT * FROM reachability"))).toHaveLength(1);
     expect(f.command(a, "policy.set", {})).toMatchObject({ error: { code: "not_authorized" } });
     value(f.command(f.admin, "policy.set", { gates: { merge: { unknown: "block" } } }));
-    f.setTime(1_001_000);
-    expect(f.store.tx(tx => sweep(tx, f.ctx)).map(e => e.body.type)).toContain("intent");
+    f.setTime(1_030_000);
+    expect(f.store.tx(tx => sweep(tx, f.ctx)).map(e => e.body.type)).toContain("lease");
   } finally { f.store.close(); }
 });
 test("asks enforce addressed human CAS and atomically record bound decisions", () => {
@@ -313,15 +313,19 @@ test("branch names can be reclaimed only after a ready head was merged or the ow
     value(f.command(b, "branch.set", { branch: "work", head, state: "ready" }));
     expect(f.command(a, "branch.set", { branch: "work", head, state: "draft" })).toMatchObject({ error: { code: "not_authorized", message: expect.stringContaining("human:other") } });
     value(f.command(f.admin, "ref.seed", { ref: "main", commits: [head] }));
+    expect(value(f.command(f.admin, "branch.set", { branch: "work", head, state: "ready" }))).toMatchObject({ owner: "human:other" });
+    expect(f.command(a, "branch.set", { branch: "work", head, state: "draft", owner: "ci:third" })).toMatchObject({ error: { code: "not_authorized" } });
+    value(f.command(b, "branch.set", { branch: "main", head, state: "ready" }));
+    expect(f.command(a, "branch.set", { branch: "main", head, state: "draft" })).toMatchObject({ error: { code: "not_authorized" } });
     expect(value(f.command(a, "branch.set", { branch: "work", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
     const messages = () => f.store.tx(tx => tx.all<{ body: string }>("SELECT body FROM messages WHERE space=?", f.space)).map(row => JSON.parse(row.body));
-    expect(messages()).toEqual([expect.objectContaining({ to: ["human:other"], parts: [{ kind: "text", text: "human:admin reclaimed branch work" }] })]);
+    expect(messages()).toEqual([expect.objectContaining({ to: ["human:other"], parts: [{ kind: "text", text: "human:admin now owns branch work" }] })]);
     // Reachability does not make a draft reusable.
     expect(f.command(b, "branch.set", { branch: "work", head, state: "ready" })).toMatchObject({ error: { code: "not_authorized" } });
     value(f.command(b, "branch.set", { branch: "recycled", head, state: "wip" }));
     value(f.command(f.admin, "principal.revoke", { principal: "human:other" }));
     expect(value(f.command(a, "branch.set", { branch: "recycled", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
-    expect(messages()).toHaveLength(1);
+    expect(messages()).toHaveLength(2);
   } finally { f.store.close(); }
 });
 

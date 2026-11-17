@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'vitest';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fixture, json } from './fixture.js';
+import { fixture, git, json } from './fixture.js';
 const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 test('ADA-2 steps 1–2: fifty concurrent reservation rounds, dropped reply, same-id retry and permanent gap', async () => {
@@ -41,5 +41,15 @@ test('ADA-2 steps 1–2: fifty concurrent reservation rounds, dropped reply, sam
   json(await f.cli('felix', ['reserve', 'seq:alembic', '--abandon', String(values[0]), '--json']));
   const next = json(await f.cli('dana', ['reserve', 'seq:alembic', '--json'])).result.value;
   expect(next).toBeGreaterThan(Math.max(...values)); expect(next).not.toBe(values[0]);
+  const policy = { sequences: { alembic: 'backend/alembic/versions/(\\d+)_*.py' } };
+  expect((await f.command('felix', 'policy.set', policy, {}, f.keys.felix.human)).status).toBe(200);
+  const duplicatePath = 'backend/alembic/versions/01_duplicate.py';
+  writeFileSync(join(m.repo, duplicatePath), '# collision\n');
+  git(m.repo, 'add', duplicatePath);
+  f.commit('felix', 'duplicate migration number');
+  const rejected = await f.push('felix', 'HEAD:refs/heads/main');
+  expect(rejected.code).not.toBe(0);
+  expect(rejected.stderr).toContain('0001_migration.py');
+  expect(rejected.stderr).toContain('01_duplicate.py');
   console.log('ADA-2: 100 unique allocations; same-id retry and abandoned gap passed');
 });

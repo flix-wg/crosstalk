@@ -1,3 +1,4 @@
+import { overlaps } from "../schema/index.js";
 export function leaseHolder(holder: string, presence: { session: string; principal: string; tool?: string }[] = []): string {
   const peer = presence.find(p => p.session === holder);
   return peer ? `${peer.principal} (${peer.tool ?? "unknown"}, ${holder.slice(0, 8)})` : `unknown (unknown, ${holder.slice(0, 8)})`;
@@ -27,14 +28,13 @@ export function hookDigest(snapshot: unknown, branch: string | null, session: st
   const presence = rows(board.presence), principal = presence.find(p => p.session === session)?.principal;
   const coordination = board.coordination as Record<string, unknown> | undefined;
   const policy = coordination?.policy as { protected_branches?: string[] } | undefined;
-  const relevant = (r: unknown) => typeof r === "string" && (r === "branch:" + branch || touched.some(p => r === "path:" + p || (r.startsWith("tree:") && p.startsWith(r.slice(5)))));
+  const relevant = (r: unknown) => typeof r === "string" && ((branch !== null && overlaps(r, "branch:" + branch)) || touched.some(p => overlaps(r, "path:" + p)));
   return {
     asks: rows(board.asks).filter(a => a.to === principal && a.state === "open"),
     branches: rows(coordination?.branches)
       .filter(b => b.branch === branch || policy?.protected_branches?.includes(String(b.branch)) || ["draft", "wip"].includes(String(b.state)))
       .map(b => ({ branch: b.branch, state: b.state, owner: b.owner, pending: b.pending })),
     leases: rows(board.leases).filter(l => l.holder !== session && Array.isArray(l.resources) && l.resources.some(relevant) && ["held", "pending"].includes(String(l.state))).map(l => ({ ...l, holder: leaseHolder(String(l.holder), presence as { session: string; principal: string; tool?: string }[]) })),
-    intents: rows(coordination?.intents).filter(i => Array.isArray(i.resources) && i.resources.some(relevant)),
     active: presence.filter(p => p.session !== session && p.state !== "offline"),
   };
 }

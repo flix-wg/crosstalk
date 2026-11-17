@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import type { BranchStatus } from "../schema/index.js";
 import type { RelayClient } from "./http.js";
+import { sequenceRegex } from "./reservations.js";
 import { render } from "./render.js";
 export interface Update { old: string; new: string; ref: string }
-const zero = (s: string) => /^0+$/.test(s);
-const name = (s: string) => s.replace(/^refs\/heads\//, "");
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).trim();
+export const zero = (s: string) => /^0+$/.test(s);
+export const name = (s: string) => s.replace(/^refs\/heads\//, "");
+export function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).trimEnd();
 }
 export function ancestor(cwd: string, a: string, b: string, timeoutMs = 10000): boolean {
   try {
@@ -18,9 +19,27 @@ export function ancestor(cwd: string, a: string, b: string, timeoutMs = 10000): 
     return false;
   }
 }
+export function duplicateSequence(cwd: string, head: string, sequences?: Record<string, string>, base?: string): string | undefined {
+  if (!sequences || !Object.keys(sequences).length) return;
+  // A pull_request_target check receives the PR tip rather than the proposed merge tree.
+  const tree = base ? git(cwd, "merge-tree", "--write-tree", base, head) : head;
+  const paths = git(cwd, "ls-tree", "-rz", "--name-only", tree).split("\0").filter(Boolean);
+  for (const [sequence, pattern] of Object.entries(sequences)) {
+    const regex = sequenceRegex(pattern);
+    const seen = new Map<string, string>();
+    for (const path of paths) {
+      const match = regex.exec(path);
+      if (!match) continue;
+      const number = match[1].replace(/^0+(?=\d)/, "");
+      const previous = seen.get(number);
+      if (previous !== undefined) return sequence + " number " + number + " occurs in " + previous + " and " + path;
+      seen.set(number, path);
+    }
+  }
+}
 export type Source = { source_branch?: string; source_head: string; unknown_source?: true };
 export function resolveSources(cwd: string, update: Update, refs: Map<string, string>, protectedBranches: Set<string>): Source[] {
-  const tips = (sha: string) => [...refs].filter(([ref, head]) => head === sha && !protectedBranches.has(name(ref))).map(([ref]) => ({ source_branch: name(ref), source_head: sha }));
+  const tips = (sha: string) => [...refs].filter(([ref, head]) => head === sha && !/(?:^|\/)gh-readonly-queue\//.test(ref) && !protectedBranches.has(name(ref))).map(([ref]) => ({ source_branch: name(ref), source_head: sha }));
   const direct = tips(update.new);
   if (direct.length) return direct;
   const parents = git(cwd, "rev-list", "--parents", "-n", "1", update.new).split(" ").slice(1);

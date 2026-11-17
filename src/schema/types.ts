@@ -21,17 +21,6 @@ export type Parts = ({
   "data": Record<string, unknown>;
 })[];
 
-export type Intent = {
-  "type": "intent";
-  "intent_id": string;
-  "rev": number;
-  "state": "active" | "done" | "abandoned" | "expired";
-  "summary": string;
-  "resources": Keys;
-  "reads"?: Record<string, Oid>;
-  "expires_at": Time;
-};
-
 export type BranchStatus = {
   "type": "branch_status";
   "branch": string;
@@ -45,6 +34,7 @@ export type BranchStatus = {
 
 export type Lease = {
   "type": "lease";
+  mode: "exclusive" | "shared";
   "lease_id": string;
   "op": "acquire" | "install" | "release" | "expire" | "revoke";
   "state": "pending" | "held" | "released" | "expired" | "revoked";
@@ -152,13 +142,11 @@ export type Event = {
 };
   "prev_hash": Hash;
   "hash": Hash;
-  "body": Intent | BranchStatus | Lease | Reservation | Message | Ask | Answer | Decision | Deployment | Admin;
+  "body": BranchStatus | Lease | Reservation | Message | Ask | Answer | Decision | Deployment | Admin;
 };
 
 export interface CommandArgs {
-  "intent.post": Pick<Intent, "summary" | "resources" | "reads"> & { intent_id?: string; ttl_s?: number };
-  "intent.close": { intent_id: string; state?: "done" | "abandoned" };
-  "lease.claim": { resources: string[]; ttl_s?: number; note?: string; expect?: { lease_id: string; rev: number } };
+  "lease.claim": { mode?: Lease["mode"]; resources: string[]; ttl_s?: number; note?: string; expect?: { lease_id: string; rev: number } };
   "lease.release": { lease_id: string };
   "session.release": { session: string };
   reserve: { sequence: string; floor?: number; note?: string; abandon?: number };
@@ -178,6 +166,7 @@ export interface CommandArgs {
   "principal.revoke": { principal: string; reason?: string; device?: string };
   "space.unfreeze": { reason?: string };
   "policy.set": {
+    sequences?: Record<string, string>;
     protected_branches?: string[];
     gates?: { merge?: { unknown?: GatePolicy; unknown_source?: GatePolicy; stale_ready?: GatePolicy } };
     envs?: Record<string, { require_on?: string }>;

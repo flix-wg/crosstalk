@@ -6,7 +6,7 @@ export function auditSigningText(head: Pick<AuditHead, "space" | "epoch" | "thro
 export function exportable(event: Event, approvals: ReadonlySet<string>): boolean {
   const b = event.body;
   switch (b.type) {
-    case "intent": case "message": return false;
+    case "message": return false;
     case "lease": return b.resources.some(r => r.startsWith("env:") || r.startsWith("branch:"));
     case "ask": return b.kind === "approval";
     case "answer": return approvals.has(b.ask_id);

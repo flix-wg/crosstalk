@@ -17,19 +17,16 @@ const verdict = { enum: ["pass", "warn", "block"] };
 
 // Only command inputs belong here; actor, timestamps, revisions and fences are relay-derived.
 export const commandArgsSchemas = {
-  "intent.post": object({
-    intent_id: uuid, summary: d.intent.properties.summary, resources: ref("keys"),
-    reads: d.intent.properties.reads, ttl_s: { type: "integer", minimum: 1 },
-  }, ["summary", "resources"]),
-  "intent.close": object({ intent_id: uuid, state: { enum: ["done", "abandoned"] } }, ["intent_id"]),
-  "lease.claim": object({
+  "lease.claim": { ...object({
+    mode: d.lease.properties.mode,
     resources: {
       ...d.keys,
       items: { allOf: [ref("key"), { not: { pattern: "^seq:" } }] },
-      if: { contains: { type: "string", pattern: "^env:" } }, then: { maxItems: 1 },
-    }, ttl_s: { type: "integer", minimum: 30, maximum: 900 }, note,
+    }, ttl_s: { type: "integer", minimum: 30, maximum: 3600 }, note,
     expect: object({ lease_id: uuid, rev: { type: "integer", minimum: 1 } }, ["lease_id", "rev"]),
-  }, ["resources"]),
+  }, ["resources"]), if: { properties: { mode: { const: "shared" } }, required: ["mode"] },
+    then: { properties: { note: { type: "string", minLength: 1 } }, required: ["note"] },
+    else: { properties: { resources: { type: "array", if: { contains: { type: "string", pattern: "^env:" } }, then: { maxItems: 1 } } } } },
   "session.release": object({ session: uuid }, ["session"]),
   "lease.release": object({ lease_id: uuid }, ["lease_id"]),
   reserve: object({
@@ -74,6 +71,7 @@ export const commandArgsSchemas = {
   "principal.revoke": object({ principal, reason: note, device: { type: "string", minLength: 1, maxLength: 80 } }, ["principal"]),
   "space.unfreeze": object({ reason: note }, []),
   "policy.set": object({
+    sequences: { type: "object", additionalProperties: { type: "string", pattern: "^[^()]*\\(\\\\d\\+\\)[^()]*$" } },
     protected_branches: { type: "array", items: text, uniqueItems: true },
     gates: object({ merge: object({
       unknown: verdict, unknown_source: verdict, stale_ready: verdict,

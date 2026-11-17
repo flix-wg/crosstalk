@@ -119,7 +119,7 @@ async function runHookInner(harness: string, event: string, stdin: string, start
           l.expires_in_s - Math.max(2, l.expires_in_s * 0.1) > (performance.now() - boardStarted) / 1000))
         return output(undefined, "deny", render({ reason: "Deploy requires an unexpired held lease; run xt claim env:" + env }));
     }
-    const reservations = await reservationConflicts(client, paths.filter(p => !existsSync(resolve(w.config.repoDir, p))));
+    const reservations = await reservationConflicts(client, paths.filter(p => !existsSync(resolve(w.config.repoDir, p))), board.coordination.policy?.sequences);
     if (reservations.length) return output(undefined, "deny", render(reservations));
     for (const a of actions) {
       if (!a.dir) throw new Error("Unknown gate source");
@@ -200,7 +200,9 @@ async function runHookInner(harness: string, event: string, stdin: string, start
     const conflicts = editConflicts(board, paths, record.session_id);
     if (conflicts.length) {
       const reason = render({ warning: "Path lease conflict; check with your developer", conflicts }, { maxTotal: 1499 });
-      return output(reason, w.config.edit_conflict === "ask" ? "ask" : undefined, w.config.edit_conflict === "ask" ? reason : undefined);
+      const ask = w.config.edit_conflict === "ask" && conflicts.some(l => l.mode !== "shared");
+      if (conflicts.some(l => l.mode !== "shared")) return output(reason, ask ? "ask" : undefined, ask ? reason : undefined);
+      warnings.push({ warning: "Overlapping shared work", conflicts });
     }
     if (w.config.auto_claim && paths.length) await client.send("lease.claim", { resources: paths.map(p => "path:" + p) });
     return generic === "before_action" ? output(warnings.length ? render(warnings, { maxTotal: 1499 }) : undefined) : output();
@@ -217,7 +219,8 @@ async function runHookInner(harness: string, event: string, stdin: string, start
       const conflicts = cached ? editConflicts(cached.snapshot as CoordinationBoard, paths, sessionId) : [];
       if (conflicts.length) {
         const reason = render({ warning: "Cached path lease conflict; check with your developer", conflicts }, { offline: true, fetched_at: cached!.fetched_at, maxTotal: 1499 });
-        return output(reason, workspace.config.edit_conflict === "ask" ? "ask" : undefined, workspace.config.edit_conflict === "ask" ? reason : undefined);
+        const ask = workspace.config.edit_conflict === "ask" && conflicts.some(l => l.mode !== "shared");
+        return output(reason, ask ? "ask" : undefined, ask ? reason : undefined);
       }
     }
     if (generic === "before_action") {

@@ -104,7 +104,7 @@ test("recorded harness inputs exercise relay gates, leases, injections, release 
   const ticket = { payload, signature: sign(null, Buffer.from(jcs(payload)), readFileSync(join(root, "key"))).toString("base64") };
   const ticketFile = join(repo, "ticket.json"); writeFileSync(ticketFile, JSON.stringify(ticket));
   const deploy = JSON.parse((await runHook("claude-code", "PreToolUse", JSON.stringify({ session_id: "test", cwd: repo, tool_name: "Bash", tool_input: { command: "xt executor promote prod --ticket " + ticketFile } }))).stdout);
-  expect(deploy.hookSpecificOutput.permissionDecision).toBe("deny"); expect(deploy.hookSpecificOutput.permissionDecisionReason).toContain("Installed");
+  expect(deploy.hookSpecificOutput.permissionDecision).toBe("deny"); expect(deploy.hookSpecificOutput.permissionDecisionReason).toContain("Held, unexpired env lease");
   const bound = await w.session("claude-code", "test"); await bound.client.send("lease.claim", { resources: ["path:own"] });
   await runHook("claude-code", "SessionEnd", JSON.stringify({ cwd: repo, session_id: "test" }));
   expect((await other.client.request<{ leases: { holder: string; state: string }[] }>("/board")).result.leases.filter(l => l.holder === bound.record.session_id).every(l => l.state === "released")).toBe(true);

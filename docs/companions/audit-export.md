@@ -1,6 +1,6 @@
 # Audit-export companion, version 2.0
 
-This normative companion extends [crosstalk core 2.0](../protocol.md). **Audit exporter / verifier** conformance requires the fixed export set, both chains, signature verification and attest-then-publish order below. **Relay audit support** requires the endpoints and attestation below. A remote hook claiming this companion MUST enforce the ref protection below. Core HTTP binding, signatures and receiver rules apply; section numbers retain their core 1.0 origins.
+This normative companion extends [crosstalk core 2.0](../protocol.md). **Audit exporter / verifier** conformance requires the fixed export set, both chains, signature verification and attest-then-publish order below. **Relay audit support** requires the endpoints and attestation below. A remote hook claiming this companion MUST enforce the ref protection below. Core HTTP binding, signatures and receiver rules apply. Section references use the 2.0 numbering.
 
 ## Endpoints and signature
 
@@ -18,7 +18,7 @@ The audit-head signature is padded base64 Ed25519 over UTF-8 of `space + epoch +
 
 ### 12.1 Content
 
-A conforming exporter exports: `lease` events touching `env:` or `branch:` keys, `branch_status`, `reservation`, `ask` events of kind `approval` and `answer` events to them, `decision`, `deployment`, `admin`. All other events (intents, messages, `path:`/`tree:` leases, question asks and their answers) are represented by skip lines. This exported set is fixed for the whole major version: an event body type added in a minor version is always exported as a skip line under `refs/crosstalk/audit/v2`, so exporters and relays of different minors compute the same `xhash`. Implementations MUST NOT make the set configurable; widening it requires a new major and audit ref.
+A conforming exporter exports: `lease` events touching `env:` or `branch:` keys, `branch_status`, `reservation`, `ask` events of kind `approval` and `answer` events to them, `decision`, `deployment`, `admin`. All other events (messages, `path:`/`tree:` leases, question asks and their answers) are represented by skip lines. This exported set is fixed for the whole major version: an event body type added in a minor version is always exported as a skip line under `refs/crosstalk/audit/v2`, so exporters and relays of different minors compute the same `xhash`. Implementations MUST NOT make the set configurable; widening it requires a new major and audit ref.
 
 ### 12.2 Lines and chains
 

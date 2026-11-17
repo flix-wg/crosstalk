@@ -1,6 +1,6 @@
 # Restore companion, version 2.0
 
-This normative companion extends [crosstalk core 2.0](../protocol.md). **Restore-capable relay** conformance requires the atomic restore and recovery rules below. Core clients retain the epoch invalidation rule even when their relay does not implement restore. The `admin` action `epoch_started` is produced by this companion; restore also produces `gates_frozen` and lease revocations. Section numbering retains its core 1.0 origin.
+This normative companion extends [crosstalk core 2.0](../protocol.md). **Restore-capable relay** conformance requires the atomic restore and recovery rules below. Core clients retain the epoch invalidation rule even when their relay does not implement restore. The `admin` action `epoch_started` is produced by this companion; restore also produces `gates_frozen` and lease revocations. Section references use the 2.0 numbering.
 
 ### 13.4 Backup restore and epochs
 

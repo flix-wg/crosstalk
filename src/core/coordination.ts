@@ -1,7 +1,6 @@
-import { canonicalKey, foldKey } from "../schema/index.js";
-import type { BranchStatus, CommandArgs, Event, Intent, Payload } from "../schema/index.js";
+import type { BranchStatus, CommandArgs, Event, Payload } from "../schema/index.js";
 import type { CommandContext, Handler } from "./commands.js";
-import type { Ctx, SqlTx } from "./types.js";
+import type { SqlTx } from "./types.js";
 import { appendEvent, fail, ok, spaceRow } from "./log.js";
 import { eventActor, isAdmin } from "./identity.js";
 
@@ -33,64 +32,30 @@ export const reserve: Handler = c => {
   emitCommand(c, { type: "reservation", sequence, value, holder: who.session, ...(note === undefined ? {} : { note }) });
   return ok(tx, actor.space, { value });
 };
-export const intent: Handler = c => {
-  const { tx, ctx, actor, who, cmd } = c;
-  if (cmd.op !== "intent.post" && cmd.op !== "intent.close") return fail(tx, actor.space, "invalid_request", "Wrong operation");
-  if (!who.session) return fail(tx, actor.space, "not_authorized", "Intent session required");
-  const id = cmd.args.intent_id ?? ctx.uuid();
-  const row = tx.get<{ session: string; body: string }>("SELECT session, body FROM intents WHERE space=? AND intent_id=?", actor.space, id);
-  const old = row ? JSON.parse(row.body) as Intent : undefined;
-  if (cmd.args.intent_id && !old) return fail(tx, actor.space, "not_found", "Intent not found");
-  if (row && row.session !== who.session) return fail(tx, actor.space, "not_authorized", "Intent owner session required");
-  if (old && (old.state !== "active" || Date.parse(old.expires_at) <= ctx.now() || (cmd.expect_rev !== undefined && cmd.expect_rev !== old.rev)))
-    return fail(tx, actor.space, "stale_revision", "Intent is no longer active at this revision");
-  let body: Intent;
-  if (cmd.op === "intent.close") body = { ...old!, state: cmd.args.state ?? "done", rev: old!.rev + 1 };
-  else {
-    let resources: string[];
-    try { resources = cmd.args.resources.map(canonicalKey); } catch { return fail(tx, actor.space, "invalid_resource", "Invalid intent resource"); }
-    if (new Set(resources.map(foldKey)).size !== resources.length) return fail(tx, actor.space, "invalid_resource", "Intent resources must be distinct after case folding");
-    const expires = ctx.now() + (cmd.args.ttl_s ?? 3600) * 1000;
-    if (!Number.isFinite(expires) || expires > 253402300799999) return fail(tx, actor.space, "invalid_request", "Intent TTL is too large");
-    body = { type: "intent", intent_id: id, rev: (old?.rev ?? 0) + 1, state: "active", summary: cmd.args.summary,
-      resources, ...(cmd.args.reads ? { reads: cmd.args.reads } : {}), expires_at: new Date(expires).toISOString() };
-  }
-  tx.run("INSERT INTO intents VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(space, intent_id) DO UPDATE SET summary=excluded.summary, body=excluded.body",
-    actor.space, id, who.session, who.principal, body.summary, ctx.now(), JSON.stringify(body));
-  emitCommand(c, body);
-  return ok(tx, actor.space, body);
-};
-export function expireIntents(tx: SqlTx, ctx: Ctx): Event[] {
-  const events: Event[] = [];
-  for (const row of tx.all<{ space: string; intent_id: string; body: string }>("SELECT space, intent_id, body FROM intents WHERE status='active' AND expires<=?", ctx.now())) {
-    const body = JSON.parse(row.body) as Intent;
-    if (body.state !== "active" || Date.parse(body.expires_at) > ctx.now()) continue;
-    body.state = "expired";
-    tx.run("UPDATE intents SET body=? WHERE space=? AND intent_id=?", JSON.stringify(body), row.space, row.intent_id);
-    events.push(appendEvent(tx, { ...ctx, epoch: spaceRow(tx, row.space).epoch }, row.space, { principal: "ci:relay", via: "relay", tool: "relay" }, null, body));
-  }
-  return events;
-}
 export const branchSet: Handler = c => {
   const { tx, actor, who, cmd } = c;
   if (cmd.op !== "branch.set") return fail(tx, actor.space, "invalid_request", "Wrong operation");
   const old = readBody<BranchStatus>(tx, "SELECT body FROM branch_status WHERE space=? AND branch=?", actor.space, cmd.args.branch);
   const policy = readBody<Policy>(tx, "SELECT body FROM policies WHERE space=?", actor.space);
+  const targets = (policy?.protected_branches ?? []).map(refName);
   const reusable = old && (!tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, old.owner) ||
-    (old.state === "ready" && policy?.protected_branches?.some(ref => tx.get("SELECT 1 FROM reachability WHERE space=? AND ref=? AND sha=?", actor.space, refName(ref), old.head))));
+    (old.state === "ready" && !targets.includes(refName(old.branch)) &&
+      targets.some(target => tx.get("SELECT 1 FROM reachability WHERE space=? AND ref=? AND sha=?", actor.space, target, old.head))));
   if (old && old.owner !== who.principal && !isAdmin(who) && !reusable)
     return fail(tx, actor.space, "not_authorized", "Branch belongs to " + old.owner + "; ask them or an admin to transfer ownership");
   if (cmd.expect_rev !== undefined && cmd.expect_rev !== old?.rev) return fail(tx, actor.space, "stale_revision", "Branch revision changed");
   if (cmd.args.owner && (!old && cmd.args.owner !== who.principal)) return fail(tx, actor.space, "not_authorized", "First setter owns the branch");
-  const owner = cmd.args.owner ?? (reusable ? who.principal : old?.owner) ?? who.principal;
+  const reclaim = reusable && old.owner !== who.principal && !isAdmin(who);
+  if (reclaim && cmd.args.owner && cmd.args.owner !== who.principal)
+    return fail(tx, actor.space, "not_authorized", "Reclaim must name the caller as owner");
+  const owner = cmd.args.owner ?? (reclaim ? who.principal : old?.owner) ?? who.principal;
   if (!tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, owner)) return fail(tx, actor.space, "not_found", "Active owner not found");
   const body: BranchStatus = { ...cmd.args, type: "branch_status", owner, rev: (old?.rev ?? 0) + 1 };
   tx.run("INSERT INTO branch_status VALUES (?, ?, ?) ON CONFLICT(space, branch) DO UPDATE SET body=excluded.body", actor.space, body.branch, JSON.stringify(body));
   emitCommand(c, body);
-  if (old && old.owner !== who.principal && !isAdmin(who) && reusable &&
-      tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, old.owner)) {
+  if (old && reusable && old.owner !== owner) {
     const message = { type: "message" as const, message_id: c.ctx.uuid(), to: [old.owner], context_id: c.ctx.uuid(),
-      parts: [{ kind: "text" as const, text: who.principal + " reclaimed branch " + body.branch }] };
+      parts: [{ kind: "text" as const, text: owner + " now owns branch " + body.branch }] };
     const event = emitCommand(c, message);
     tx.run("INSERT INTO messages VALUES (?, ?, ?)", actor.space, event.seq, JSON.stringify(message));
   }
@@ -130,8 +95,3 @@ export const refAdvance: Handler = c => {
   if (cmd.op === "ref.seed") emitCommand(c, { type: "admin", action: "ref_seeded", subject: cmd.args.ref });
   return ok(tx, actor.space, { ref: cmd.args.ref });
 };
-
-export function newestIntent(tx: SqlTx, space: string, session: string, now: number): string | undefined {
-  return tx.get<{ summary: string }>("SELECT summary FROM intents WHERE space=? AND session=? AND status='active' AND expires>? ORDER BY created_at DESC, rowid DESC LIMIT 1",
-    space, session, now)?.summary;
-}

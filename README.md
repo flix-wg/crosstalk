@@ -16,11 +16,11 @@ Agents reach it through hooks (Claude Code, Codex), through MCP (`xt mcp`, any M
 
 ## Status
 
-Early. The protocol is at 2.0 and the reference implementation passes its own acceptance tests, but it has only been used in trials, not in production. Expect rough edges. [`docs/protocol-gaps.md`](docs/protocol-gaps.md) lists where the code does not yet meet the protocol.
+Early. The protocol is a 2.0 draft and the reference implementation passes its own acceptance tests, but it has only been used in trials, not in production. Expect rough edges. [`docs/protocol-gaps.md`](docs/protocol-gaps.md) lists where the code does not yet meet the protocol.
 
 ## Protocol
 
-[`docs/protocol.md`](docs/protocol.md) defines the protocol independently of this implementation: relay API, events, commands, leases, gates, asks, audit export, versioning, and how a new harness binds to it. JSON Schemas are published at `https://flix-wg.github.io/crosstalk/schema/v2/` (newest 2.x) and `…/schema/2.0/` (immutable snapshot). Optional [companions](docs/companions/) and portable [test vectors](test-vectors/2.0/) accompany the core.
+[`docs/protocol.md`](docs/protocol.md) defines the protocol independently of this implementation: relay API, events, commands, leases, gates, asks, audit export, versioning, and how a new harness binds to it. JSON Schemas are published at `https://flix-wg.github.io/crosstalk/schema/v2/` (newest 2.x) and `…/schema/2.0/` (draft snapshot until release). Optional [companions](docs/companions/) and portable [test vectors](test-vectors/2.0/) accompany the core.
 
 ## Install from source
 
@@ -72,7 +72,10 @@ On GitHub, enroll a CI principal, store its key as the repository secret `CROSST
 
 ```yaml
 name: crosstalk
-on: [pull_request_target, merge_group]
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  merge_group:
 permissions:
   contents: read
 jobs:
@@ -87,7 +90,7 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.number }}
         run: git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
-      - uses: flix-wg/crosstalk@main
+      - uses: flix-wg/crosstalk@0000000000000000000000000000000000000000 # Replace with the full SHA of a trusted release
         with:
           relay: https://relay.example.org
           relay-key: sha256:<fingerprint>
@@ -113,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: flix-wg/crosstalk@main
+      - uses: flix-wg/crosstalk@0000000000000000000000000000000000000000 # Replace with the full SHA of a trusted release
         with:
           mode: advance
           relay: https://relay.example.org
@@ -129,7 +132,13 @@ The equivalent CLI is `xt gate advance --relay <url> --relay-key <fingerprint> -
 
 ## Repository configuration
 
-`.crosstalk.toml` contains `space`, `relay`, and `relay_key` approved by `xt trust`. Optional `strict = true` makes pre-commit lease/reservation violations block. Sequence rules check newly created files; deploy patterns require the session’s installed environment lease:
+`.crosstalk.toml` contains `space`, `relay`, and `relay_key` approved by `xt trust`. Optional `strict = true` makes pre-commit lease/reservation violations block. Sequence rules check newly created files. Set a relay sequence policy to apply the same number capture to reservations, edits and the proposed protected-branch tree:
+
+```sh
+xt admin policy set --args '{"sequences":{"alembic":"migrations/(\\d+)_*.py"}}'
+```
+
+For sequences without a relay definition, existing repository floor settings still apply locally. Configure deploy commands in the repository:
 
 ```toml
 [sequences.alembic]
@@ -140,7 +149,9 @@ floor_regex = '^(\d+)_'
 prod = ['^\s*deploy-prod(?:\s|$)', '^\s*kubectl apply(?:\s|$)']
 ```
 
-Reserve numbers with `xt reserve seq:alembic`; claim deploy leases with `xt claim env:prod` and have the enrolled executor install them.
+Announce shared work with `xt announce 'Reviewing the API' --res tree:api/` and release it with `xt announce --close <lease_id>`. Other sessions see overlapping work as a warning.
+
+Reserve numbers with `xt reserve seq:alembic`; claim deploy leases with `xt claim env:prod` and install them when that environment has an enrolled executor.
 
 ## Development
 

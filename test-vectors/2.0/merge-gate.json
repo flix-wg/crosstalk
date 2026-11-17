@@ -113,6 +113,44 @@
       "verdict": "block"
     },
     {
+      "name": "unknown source target requirement",
+      "snapshot": {
+        "branch_status": null,
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "open",
+            "rev": 1,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:target:main"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decisions": [],
+        "policy": {
+          "gates": {
+            "merge": {
+              "unknown_source": "pass"
+            }
+          }
+        }
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main",
+        "unknown_source": true
+      },
+      "verdict": "block"
+    },
+    {
       "name": "open requirement",
       "snapshot": {
         "branch_status": {

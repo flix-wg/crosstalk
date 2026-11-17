@@ -87,11 +87,11 @@ async function normal(name: string, c: CommandContext): Promise<number> {
       case "asks": a.done(); emit(await client.asks()); return 0;
       case "announce": {
         const close = a.take("close");
-        if (close) { op = "intent.close"; args = { intent_id: close, state: a.take("state") }; }
-        else { op = "intent.post"; args = { summary: a.pos(), resources: a.all("res"), ttl_s: a.number("ttl"), intent_id: a.take("id") }; }
+        if (close) { op = "lease.release"; args = { lease_id: close }; }
+        else { op = "lease.claim"; args = { mode: "shared", note: a.pos(), resources: a.all("res"), ttl_s: a.number("ttl") }; }
         break;
       }
-      case "claim": op = "lease.claim"; args = { resources: a.positional.splice(0), ttl_s: a.number("ttl"), note: a.take("note") }; { const id = a.take("expect-lease"); if (id) args.expect = { lease_id: id, rev: a.number("lease-rev") }; } break;
+      case "claim": op = "lease.claim"; args = { mode: a.take("shared") ? "shared" : undefined, resources: a.positional.splice(0), ttl_s: a.number("ttl"), note: a.take("note") }; { const id = a.take("expect-lease"); if (id) args.expect = { lease_id: id, rev: a.number("lease-rev") }; } break;
       case "release": op = "lease.release"; args = { lease_id: a.pos() }; break;
       case "reserve": op = "reserve"; args = { sequence: a.pos(), floor: a.number("floor"), abandon: a.number("abandon"), note: a.take("note") }; break;
       case "send": op = "message.send"; args = { to: [a.pos()], context_id: a.take("context") ?? randomUUID(), parts: [{ kind: "text", text: a.pos() }] }; break;

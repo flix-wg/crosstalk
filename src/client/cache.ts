@@ -7,6 +7,9 @@ import { scanSecrets } from "./render.js";
 
 const SCHEMA = 1;
 export interface CachedBoard { epoch: string; seq: number; snapshot: unknown; fetched_at: number }
+export function queueable(command: Command): boolean {
+  return command.op === "message.send" || command.op === "ask.open" || (command.op === "lease.claim" && command.args.mode === "shared");
+}
 export class LocalCache {
   private readonly db: DatabaseSync;
   constructor(commonDir: string, private readonly scope: string, options: { fastMetadata?: boolean } = {}) {
@@ -100,8 +103,8 @@ export class LocalCache {
     return this.db.prepare("SELECT receipt FROM reservation_receipts WHERE scope=?").all(this.scope).map(r => JSON.parse(String(r.receipt)) as unknown);
   }
   enqueue(command: Command, session = "legacy"): void {
-    if (!["message.send", "intent.post", "intent.close", "ask.open"].includes(command.op))
-      throw new ClientError("not_queueable", "Only messages, intents and asks can be queued offline");
+    if (!queueable(command))
+      throw new ClientError("not_queueable", "Only messages, shared claims and asks can be queued offline");
     scanSecrets(command.args);
     const json = JSON.stringify(command);
     const old = this.db.prepare("SELECT command FROM local_outbox WHERE scope=? AND request_id=?").get(this.scope + "/outbox/" + session, command.request_id);

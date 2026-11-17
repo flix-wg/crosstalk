@@ -80,7 +80,7 @@ test("offline outbox persists and drains only an acknowledged prefix; claims sta
     return Response.json({ epoch, seq: sent.length, receipt: cmd.request_id, result: {} });
   };
   let client = new RelayClient(config, { token: "unused", retries: 0, cache, fetch: fetcher });
-  const command = { request_id: randomUUID(), op: "intent.post" as const, args: { summary: "work", resources: ["path:a"] } };
+  const command = { request_id: randomUUID(), op: "lease.claim" as const, args: { mode: "shared" as const, note: "work", resources: ["path:a"] } };
   await expect(client.command(command)).rejects.toMatchObject({ code: "queued" });
   await expect(client.send("lease.claim", { resources: ["path:a"] })).rejects.toMatchObject({ code: "unknown" });
   expect(cache.pending(sha256("unused"))).toEqual([command]);
@@ -129,7 +129,7 @@ test("outgoing secrets never reach fetch and agent credentials reject loose perm
   const r = repo(randomUUID(), "https://example.invalid");
   let calls = 0;
   const client = new RelayClient(trust(r.dir), { token: "unused", fetch: async () => { calls++; throw new Error(); } });
-  await expect(client.send("intent.post", { summary: "-----BEGIN PRIVATE KEY-----", resources: [] })).rejects.toMatchObject({ code: "secret_detected" });
+  await expect(client.send("lease.claim", { mode: "shared", note: "-----BEGIN PRIVATE KEY-----", resources: [] })).rejects.toMatchObject({ code: "secret_detected" });
   expect(calls).toBe(0);
   expect(() => scanSecrets("token=AbCdEfGh1234567890zyXW9876")).toThrow("secret");
   const file = join(r.dir, "credentials.json");

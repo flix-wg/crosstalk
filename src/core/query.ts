@@ -1,7 +1,8 @@
+import { presenceDoing } from "./identity.js";
 import { liveState } from "./gates.js";
 import { leaseView } from "./leases.js";
 import type { LeaseRow } from "./leases.js";
-import type { Event, Ask, Intent, Message, Deployment, BranchStatus } from "../schema/index.js";
+import type { Event, Ask, Message, Deployment, BranchStatus } from "../schema/index.js";
 import type { Result, SqlTx } from "./types.js";
 import { fail, ok, spaceRow } from "./log.js";
 
@@ -33,10 +34,10 @@ export function query(tx: SqlTx, q: Query): Result {
     const recent = <T>(table: string, sql: string, ...args: (string | number)[]): T[] => {
       const rows = tx.all<T>(sql, ...args); more[table] = rows.length > 100; return rows.slice(0, 100);
     };
-    const presence = "SELECT s.id AS session, s.principal, s.tool, COALESCE(c.device, 'default') AS device, p.doing, p.state, p.expires_at FROM sessions s JOIN credentials c ON c.id=s.credential_id JOIN presence p ON p.session=s.id WHERE s.space=?";
+    const presence = "SELECT s.id AS session, s.principal, s.tool, COALESCE(c.device, 'default') AS device, " + presenceDoing + " AS doing, p.state, p.expires_at FROM sessions s JOIN credentials c ON c.id=s.credential_id JOIN presence p ON p.session=s.id WHERE s.space=?";
     const online = "p.state!='offline' AND p.expires_at>? AND s.expires_at>? AND s.closed=0";
-    const livePresence = tx.all(presence + " AND (" + online + ")", q.space, q.now, q.now);
-    const offlinePresence = recent<Record<string, unknown>>("presence", presence + " AND NOT (" + online + ") ORDER BY p.expires_at DESC LIMIT 101", q.space, q.now, q.now).map(row => ({ ...row, state: "offline" }));
+    const livePresence = tx.all(presence + " AND (" + online + ")", q.now, q.space, q.now, q.now);
+    const offlinePresence = recent<Record<string, unknown>>("presence", presence + " AND NOT (" + online + ") ORDER BY p.expires_at DESC LIMIT 101", q.now, q.space, q.now, q.now).map(row => ({ ...row, state: "offline" }));
     result.presence = [...livePresence, ...offlinePresence];
     const cutoff = new Date(q.now - 86400000).toISOString();
     const seq = tx.get<{ seq: number }>("SELECT seq FROM events WHERE space=? AND json_extract(event, '$.recorded_at')>=? ORDER BY json_extract(event, '$.recorded_at'), seq LIMIT 1", q.space, cutoff)?.seq ?? spaceRow(tx, q.space).seq + 1;
@@ -75,12 +76,9 @@ export function query(tx: SqlTx, q: Query): Result {
     return ok(tx, q.space, { cursor, messages });
   }
   if (q.kind === "coordination") {
-    const intents = tx.all<{ body: string }>("SELECT body FROM intents WHERE space=? AND status='active' AND expires>?", q.space, q.now)
-      .map(row => JSON.parse(row.body) as Intent)
-      .filter(body => body.state === "active" && Date.parse(body.expires_at) > q.now);
     const branches = tx.all<{ body: string }>("SELECT body FROM branch_status WHERE space=?", q.space).map(row => JSON.parse(row.body) as BranchStatus);
     const policy = tx.get<{ body: string }>("SELECT body FROM policies WHERE space=?", q.space);
-    return ok(tx, q.space, { intents, branches, policy: policy ? JSON.parse(policy.body) as unknown : {} });
+    return ok(tx, q.space, { branches, policy: policy ? JSON.parse(policy.body) as unknown : {} });
   }
   if (q.kind === "leases") return ok(tx, q.space, tx.all<LeaseRow>("SELECT * FROM leases WHERE space=? ORDER BY fence", q.space).map(row => leaseView(row, q.now)));
   if (q.kind === "events") {
@@ -99,6 +97,6 @@ export function query(tx: SqlTx, q: Query): Result {
     return row ? { ...JSON.parse(row.response) as Result, payload_hash: row.payload_hash } : fail(tx, q.space, "not_found", "Receipt not found");
   }
   return ok(tx, q.space, tx.all(
-    "SELECT s.id AS session, s.principal, s.tool, COALESCE(c.device, 'default') AS device, p.doing, CASE WHEN p.expires_at<=? OR s.expires_at<=? OR s.closed=1 THEN 'offline' ELSE p.state END AS state FROM sessions s JOIN credentials c ON c.id=s.credential_id JOIN presence p ON p.session=s.id WHERE s.space=?",
-    q.now, q.now, q.space));
+    "SELECT s.id AS session, s.principal, s.tool, COALESCE(c.device, 'default') AS device, " + presenceDoing + " AS doing, CASE WHEN p.expires_at<=? OR s.expires_at<=? OR s.closed=1 THEN 'offline' ELSE p.state END AS state FROM sessions s JOIN credentials c ON c.id=s.credential_id JOIN presence p ON p.session=s.id WHERE s.space=?",
+    q.now, q.now, q.now, q.space));
 }

@@ -1,4 +1,3 @@
-import { newestIntent } from "./coordination.js";
 import { sha256, validateSession } from "../schema/index.js";
 import type { Event } from "../schema/index.js";
 import { appendEvent, fail, ok, spaceRow } from "./log.js";
@@ -88,14 +87,16 @@ export function openSession(tx: SqlTx, ctx: Ctx, actor: Actor, input: unknown, t
   tx.run("INSERT INTO presence VALUES (?, 'working', '', ?)", id, ctx.now() + 90000);
   return ok(tx, actor.space, { session_id: id, expires_at: new Date(expires).toISOString(), heartbeat_s: 30, cursor: spaceRow(tx, actor.space).seq });
 }
+export const presenceDoing = "COALESCE((SELECT note FROM leases WHERE space=s.space AND holder=s.id AND mode='shared' AND state='held' AND expires_at>? ORDER BY created_at DESC, fence DESC LIMIT 1), p.doing)";
+
 export function heartbeat(tx: SqlTx, ctx: Ctx, actor: Actor, state: "working" | "waiting" | "offline", doing = ""): Result {
   const who = identity(tx, ctx, actor);
   if (!who?.session) return fail(tx, actor.space, "not_authorized", "Active session required");
   if (!["working", "waiting", "offline"].includes(state) || typeof doing !== "string" || doing.length > 280)
     return fail(tx, actor.space, "invalid_request", "Invalid presence");
   tx.run("UPDATE sessions SET expires_at=? WHERE id=?", ctx.now() + 86400000, who.session);
-  tx.run("UPDATE presence SET state=?, doing=?, expires_at=? WHERE session=?", state, newestIntent(tx, actor.space, who.session, ctx.now()) ?? doing, ctx.now() + 90000, who.session);
-  return ok(tx, actor.space, { heartbeat_s: 30, leases: tx.all<{ lease_id: string; expires_at: number }>(
-    "SELECT lease_id, expires_at FROM leases WHERE space=? AND holder=? AND state IN ('pending','held') AND expires_at>?",
-    actor.space, who.session, ctx.now()).map(row => ({ lease_id: row.lease_id, expires_in_s: (row.expires_at - ctx.now()) / 1000 })) });
+  tx.run("UPDATE presence SET state=?, doing=?, expires_at=? WHERE session=?", state, doing, ctx.now() + 90000, who.session);
+  return ok(tx, actor.space, { heartbeat_s: 30, leases: tx.all<{ lease_id: string; mode: string; expires_at: number }>(
+    "SELECT lease_id, mode, expires_at FROM leases WHERE space=? AND holder=? AND state IN ('pending','held') AND expires_at>?",
+    actor.space, who.session, ctx.now()).map(row => ({ lease_id: row.lease_id, mode: row.mode, expires_in_s: (row.expires_at - ctx.now()) / 1000 })) });
 }

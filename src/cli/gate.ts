@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { ClientError, RelayClient, draftSources, checkMergeSources, resolveSources, advance } from "../client/index.js";
+import { git, name, duplicateSequence, render, ClientError, RelayClient, draftSources, checkMergeSources, resolveSources, advance } from "../client/index.js";
 import type { LoadedConfig, CoordinationBoard } from "../client/index.js";
 import type { CommandContext } from "./index.js";
 
@@ -10,7 +9,7 @@ export async function mergeGate(c: CommandContext): Promise<number> {
     mode = c.args.pos();
     if (mode !== "merge" && mode !== "advance") throw new ClientError("usage", "Expected xt gate merge or advance");
     const relay = c.args.need("relay"), relay_key = c.args.need("relay-key"), space = c.args.need("space");
-    const target = c.args.need(mode === "advance" ? "ref" : "target").replace(/^refs\/heads\//, "");
+    const target = name(c.args.need(mode === "advance" ? "ref" : "target"));
     const source = mode === "merge" ? c.args.take("source") : undefined;
     const head = c.args.need(mode === "advance" ? "new" : "head"), base = c.args.need(mode === "advance" ? "old" : "base");
     c.args.done();
@@ -22,8 +21,7 @@ export async function mergeGate(c: CommandContext): Promise<number> {
         !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(space) ||
         ![head, base].every(s => /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(s)))
       throw new ClientError("usage", "Invalid relay, fingerprint, space or commit SHA");
-    const git = (...args: string[]) => execFileSync("git", ["-C", c.cwd, ...args], { encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).trim();
-    try { for (const branch of [target, ...(source === undefined ? [] : [source])]) git("check-ref-format", "refs/heads/" + branch); }
+    try { for (const branch of [target, ...(source === undefined ? [] : [source])]) git(c.cwd, "check-ref-format", "refs/heads/" + branch); }
     catch { throw new ClientError("usage", "Invalid branch name"); }
     const token = process.env.CROSSTALK_KEY;
     if (!token) throw new ClientError("usage", "Set CROSSTALK_KEY to a CI credential");
@@ -38,22 +36,24 @@ export async function mergeGate(c: CommandContext): Promise<number> {
     }
     const board = (await client.request<CoordinationBoard>("/board")).result;
     if (!board.coordination.policy) throw new Error("Policy unavailable");
-    if (!board.coordination.policy.protected_branches?.some(b => b.replace(/^refs\/heads\//, "") === target)) {
+    if (!board.coordination.policy.protected_branches?.some(b => name(b) === target)) {
       c.out("crosstalk: target is not protected; merge gate passes"); return 0;
     }
-    for (const sha of [head, base]) git("cat-file", "-e", sha + "^{commit}");
+    for (const sha of [head, base]) git(c.cwd, "cat-file", "-e", sha + "^{commit}");
+    const duplicate = duplicateSequence(c.cwd, head, board.coordination.policy.sequences, source === undefined ? undefined : base);
+    if (duplicate) { c.out(render({ error: duplicate }, { hooks: false })); return 1; }
     const refs = new Map<string, string>();
     // CI fetches remote heads; local heads take precedence where both exist.
     for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
-      for (const line of git("for-each-ref", "--format=%(refname) %(objectname)", prefix).split("\n").filter(Boolean)) {
+      for (const line of git(c.cwd, "for-each-ref", "--format=%(refname) %(objectname)", prefix).split("\n").filter(Boolean)) {
         const [ref, sha] = line.split(" ");
-        refs.set("refs/heads/" + ref.slice(prefix.length), sha);
+        if (ref !== "refs/remotes/origin/HEAD") refs.set("refs/heads/" + ref.slice(prefix.length), sha);
       }
     }
     if (source !== undefined) refs.set("refs/heads/" + source, head);
     refs.set("refs/heads/" + target, head);
     const update = { old: base, new: head, ref: "refs/heads/" + target };
-    const protectedBranches = new Set((board.coordination.policy.protected_branches ?? []).map(b => b.replace(/^refs\/heads\//, "")));
+    const protectedBranches = new Set((board.coordination.policy.protected_branches ?? []).map(name));
     const sources = source === undefined ? resolveSources(c.cwd, update, refs, protectedBranches) : [{ source_branch: source, source_head: head }];
     sources.push(...draftSources(c.cwd, update, refs, board.coordination.branches, sources));
     const result = await checkMergeSources(client, target, sources);

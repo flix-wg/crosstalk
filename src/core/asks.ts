@@ -49,7 +49,7 @@ export const askChange: Handler = c => {
     if (ask.state === "withdrawn") return fail(tx, actor.space, "stale_revision", "Requirement already withdrawn");
     const updated: Ask = { ...ask, state: "withdrawn", rev: ask.rev + 1 };
     save(c, updated);
-    emitCommand(c, { type: "admin", action: "requirement_withdrawn", subject: ask.ask_id, ...(cmd.args.reason ? { reason: cmd.args.reason } : {}) });
+    if (ask.blocks?.length) emitCommand(c, { type: "admin", action: "requirement_withdrawn", subject: ask.ask_id, ...(cmd.args.reason ? { reason: cmd.args.reason } : {}) });
     return ok(tx, actor.space, updated);
   }
   if (ask.state !== "open" && !(ask.kind === "approval" && ask.state === "answered"))

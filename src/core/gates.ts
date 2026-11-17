@@ -26,7 +26,7 @@ export function evaluateGate(tx: Snapshot, input: GateInput): GateResult {
   const raw = tx.get<{ body: string }>("SELECT body FROM policies WHERE space=?", input.space);
   const policy = raw ? JSON.parse(raw.body) as Policy : {};
   const decisions = tx.all<{ body: string }>("SELECT body FROM decisions WHERE space=? ORDER BY seq DESC", input.space).map(row => JSON.parse(row.body) as Decision);
-  const scope = input.kind === "merge" ? "merge:branch:" + input.source_branch : "deploy:env:" + input.env;
+  const scope = input.kind === "merge" ? (input.unknown_source ? "merge:target:" + input.target_branch : "merge:branch:" + input.source_branch) : "deploy:env:" + input.env;
   const head = input.kind === "merge" ? input.source_head : input.sha;
   const requirement = () => {
     const asks = tx.all<{ body: string }>("SELECT body FROM asks WHERE space=?", input.space).map(row => JSON.parse(row.body) as Ask);
@@ -42,8 +42,7 @@ export function evaluateGate(tx: Snapshot, input: GateInput): GateResult {
   if (input.kind === "merge") {
     const blocked = requirement();
     if (blocked) return blocked;
-    const overrideScope = input.unknown_source ? "merge:target:" + input.target_branch : scope;
-    const override = decisions.some(d => d.source.kind === "override" && d.verdict === "approve" && d.scope?.includes(overrideScope) && d.bound_head === head);
+    const override = decisions.some(d => d.source.kind === "override" && d.verdict === "approve" && d.scope?.includes(scope) && d.bound_head === head);
     if (input.unknown_source) {
       const verdict = policy.gates?.merge?.unknown_source ?? "block";
       return result(override ? "pass" : verdict, override ? "Human override" : "Unknown merge source");
@@ -60,7 +59,7 @@ export function evaluateGate(tx: Snapshot, input: GateInput): GateResult {
   }
   const lease = tx.get<LeaseRow>("SELECT * FROM leases WHERE space=? AND lease_id=?", input.space, input.lease_id);
   if (!lease || lease.state !== "held" || lease.expires_at <= input.now || lease.fence !== input.fence || lease.holder !== input.holder || lease.resources !== JSON.stringify(["env:" + input.env]))
-    return result("block", "Installed, unexpired env lease with matching holder and fence required");
+    return result("block", "Held, unexpired env lease with matching holder and fence required");
   const blocked = requirement();
   if (blocked) return blocked;
   const ref = policy.envs?.[input.env]?.require_on;

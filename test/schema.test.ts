@@ -150,8 +150,6 @@ test("Ed25519 signatures roundtrip and reject tampering or wrong keys", () => {
 
 test("every command op validates minimal inputs and rejects missing args or unknown ops", () => {
   const examples: CommandArgs = {
-    "intent.post": { summary: "Edit API", resources: ["tree:api/"] },
-    "intent.close": { intent_id: id },
     "lease.claim": { resources: ["env:prod"], ttl_s: 600 },
     "lease.release": { lease_id: id },
     "session.release": { session: id },
@@ -188,7 +186,7 @@ test("every command op validates minimal inputs and rejects missing args or unkn
 test("lease inputs reject sequences, mixed env claims and out-of-range TTLs", () => {
   for (const args of [
     { resources: ["seq:alembic"] }, { resources: ["env:prod", "path:a"] },
-    { resources: ["path:a"], ttl_s: 29 }, { resources: ["path:a"], ttl_s: 901 },
+    { resources: ["path:a"], ttl_s: 29 }, { resources: ["path:a"], ttl_s: 3601 },
   ]) {
     expect(validateCommand({ request_id: id, op: "lease.claim", args })).toBe(false);
   }

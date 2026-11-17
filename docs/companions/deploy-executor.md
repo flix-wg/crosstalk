@@ -1,6 +1,6 @@
 # Deploy-executor companion, version 2.0
 
-This normative companion extends [crosstalk core 2.0](../protocol.md). **Deploy executor** conformance requires installation, serialized promotion, durable recovery and idempotent reports below. **Relay deployment support** requires the model, commands, endpoints, signatures and gate extension below. Core terminology, authorization, HTTP binding and receiver rules apply; section numbers below retain their core 1.0 origins.
+This normative companion extends [crosstalk core 2.0](../protocol.md). **Deploy executor** conformance requires installation, serialized promotion, durable recovery and idempotent reports below. **Relay deployment support** requires the model, commands, endpoints, signatures and gate extension below. Core terminology, authorization, HTTP binding and receiver rules apply. Section references use the 2.0 numbering.
 
 For an env with an enrolled executor, the deploy gate MUST additionally block when no live state exists until a human adopts it. An env without an enrolled executor uses only the core deploy gate.
 

@@ -34,7 +34,7 @@ export const eventSchema = {
     "prev_hash": {"$ref": "#/$defs/hash"},
     "hash": {"$ref": "#/$defs/hash"},
     "body": {"oneOf": [
-      {"$ref": "#/$defs/intent"}, {"$ref": "#/$defs/branch_status"},
+      {"$ref": "#/$defs/branch_status"},
       {"$ref": "#/$defs/lease"}, {"$ref": "#/$defs/reservation"},
       {"$ref": "#/$defs/message"}, {"$ref": "#/$defs/ask"},
       {"$ref": "#/$defs/answer"}, {"$ref": "#/$defs/decision"},
@@ -59,19 +59,6 @@ export const eventSchema = {
          "properties": {"kind": {"const": "data"}, "data": {"type": "object"}}}
       ]}
     },
-    "intent": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "intent_id", "rev", "state", "summary", "resources", "expires_at"],
-      "properties": {
-        "type": {"const": "intent"}, "intent_id": {"type": "string", "format": "uuid"},
-        "rev": {"type": "integer", "minimum": 1},
-        "state": {"enum": ["active", "done", "abandoned", "expired"]},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 280},
-        "resources": {"$ref": "#/$defs/keys"},
-        "reads": {"type": "object", "additionalProperties": {"$ref": "#/$defs/oid"}},
-        "expires_at": {"$ref": "#/$defs/time"}
-      }
-    },
     "branch_status": {
       "type": "object", "additionalProperties": false,
       "required": ["type", "branch", "state", "head", "owner", "rev"],
@@ -86,9 +73,9 @@ export const eventSchema = {
     },
     "lease": {
       "type": "object", "additionalProperties": false,
-      "required": ["type", "lease_id", "op", "state", "resources", "holder", "fence", "rev", "expires_at"],
+      "required": ["type", "lease_id", "mode", "op", "state", "resources", "holder", "fence", "rev", "expires_at"],
       "properties": {
-        "type": {"const": "lease"}, "lease_id": {"type": "string", "format": "uuid"},
+        "type": {"const": "lease"}, "mode": {"enum": ["exclusive", "shared"]}, "lease_id": {"type": "string", "format": "uuid"},
         "op": {"enum": ["acquire", "install", "release", "expire", "revoke"]},
         "state": {"enum": ["pending", "held", "released", "expired", "revoked"]},
         "resources": {"$ref": "#/$defs/keys"},
@@ -132,7 +119,7 @@ export const eventSchema = {
         "options": {"type": "array", "items": {"type": "string", "maxLength": 80}, "maxItems": 8, "uniqueItems": true},
         "resources": {"type": "array", "items": {"$ref": "#/$defs/key"}, "maxItems": 16},
         "blocks": {"type": "array", "maxItems": 8,
-                   "items": {"type": "string", "pattern": "^(merge:branch:\\S+|deploy:env:[a-z0-9-]+)$"}},
+                   "items": {"type": "string", "pattern": "^(merge:(branch|target):\\S+|deploy:env:[a-z0-9-]+)$"}},
         "bound_head": {"$ref": "#/$defs/oid"},
         "bound_artifact": {"$ref": "#/$defs/digest"},
         "state": {"enum": ["open", "answered", "withdrawn"]},
