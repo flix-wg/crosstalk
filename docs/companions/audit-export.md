@@ -36,4 +36,3 @@ The head is `{space, epoch, through_seq, through_hash, xhash, relay_key, sig, ex
 ### 12.4 Git storage
 
 The export is stored as an orphan commit chain on `refs/crosstalk/audit/v2`, pushed with `--force-with-lease` against the commit just read. A new epoch starts a new file set. The remote hook MUST allow updates under `refs/crosstalk/**` only from `ci:remote` or a human admin, fast-forward only, never deletes. The export is a read-only replica; nothing reads it back as authority. Because git history is replicated, text in it cannot be deleted later; this is why messages are not exported.
-

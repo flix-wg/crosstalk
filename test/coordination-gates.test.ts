@@ -314,11 +314,14 @@ test("branch names can be reclaimed only after a ready head was merged or the ow
     expect(f.command(a, "branch.set", { branch: "work", head, state: "draft" })).toMatchObject({ error: { code: "not_authorized", message: expect.stringContaining("human:other") } });
     value(f.command(f.admin, "ref.seed", { ref: "main", commits: [head] }));
     expect(value(f.command(a, "branch.set", { branch: "work", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
+    const messages = () => f.store.tx(tx => tx.all<{ body: string }>("SELECT body FROM messages WHERE space=?", f.space)).map(row => JSON.parse(row.body));
+    expect(messages()).toEqual([expect.objectContaining({ to: ["human:other"], parts: [{ kind: "text", text: "human:admin reclaimed branch work" }] })]);
     // Reachability does not make a draft reusable.
     expect(f.command(b, "branch.set", { branch: "work", head, state: "ready" })).toMatchObject({ error: { code: "not_authorized" } });
     value(f.command(b, "branch.set", { branch: "recycled", head, state: "wip" }));
     value(f.command(f.admin, "principal.revoke", { principal: "human:other" }));
     expect(value(f.command(a, "branch.set", { branch: "recycled", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
+    expect(messages()).toHaveLength(1);
   } finally { f.store.close(); }
 });
 

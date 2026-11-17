@@ -192,7 +192,7 @@ An **answer** records the human's `choice` and optional `text`. A **decision** i
 
 ### 5.10 Branch status
 
-`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer.
+`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer. On this reuse path (not an owner or admin update), the relay MUST notify the previous owner, if still active, in the same transaction with a message naming the reclaiming principal and branch.
 
 ### 5.11 Optional deployment records
 

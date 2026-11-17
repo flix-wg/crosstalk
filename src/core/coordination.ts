@@ -87,6 +87,13 @@ export const branchSet: Handler = c => {
   const body: BranchStatus = { ...cmd.args, type: "branch_status", owner, rev: (old?.rev ?? 0) + 1 };
   tx.run("INSERT INTO branch_status VALUES (?, ?, ?) ON CONFLICT(space, branch) DO UPDATE SET body=excluded.body", actor.space, body.branch, JSON.stringify(body));
   emitCommand(c, body);
+  if (old && old.owner !== who.principal && !isAdmin(who) && reusable &&
+      tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, old.owner)) {
+    const message = { type: "message" as const, message_id: c.ctx.uuid(), to: [old.owner], context_id: c.ctx.uuid(),
+      parts: [{ kind: "text" as const, text: who.principal + " reclaimed branch " + body.branch }] };
+    const event = emitCommand(c, message);
+    tx.run("INSERT INTO messages VALUES (?, ?, ?)", actor.space, event.seq, JSON.stringify(message));
+  }
   return ok(tx, actor.space, body);
 };
 export const messaging: Handler = c => {

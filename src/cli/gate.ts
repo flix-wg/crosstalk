@@ -1,14 +1,18 @@
 import { execFileSync } from "node:child_process";
-import { ClientError, RelayClient, draftSources, checkMergeSources } from "../client/index.js";
+import { ClientError, RelayClient, draftSources, checkMergeSources, resolveSources, advance } from "../client/index.js";
 import type { LoadedConfig, CoordinationBoard } from "../client/index.js";
 import type { CommandContext } from "./index.js";
 
 /** All connection settings come from the trusted workflow, never the checkout. */
 export async function mergeGate(c: CommandContext): Promise<number> {
+  let mode: string | undefined;
   try {
-    if (c.args.pos() !== "merge") throw new ClientError("usage", "Expected xt gate merge");
+    mode = c.args.pos();
+    if (mode !== "merge" && mode !== "advance") throw new ClientError("usage", "Expected xt gate merge or advance");
     const relay = c.args.need("relay"), relay_key = c.args.need("relay-key"), space = c.args.need("space");
-    const target = c.args.need("target"), source = c.args.need("source"), head = c.args.need("head"), base = c.args.need("base");
+    const target = c.args.need(mode === "advance" ? "ref" : "target").replace(/^refs\/heads\//, "");
+    const source = mode === "merge" ? c.args.take("source") : undefined;
+    const head = c.args.need(mode === "advance" ? "new" : "head"), base = c.args.need(mode === "advance" ? "old" : "base");
     c.args.done();
     let url: URL;
     try { url = new URL(relay); } catch { throw new ClientError("usage", "Invalid relay URL"); }
@@ -19,14 +23,19 @@ export async function mergeGate(c: CommandContext): Promise<number> {
         ![head, base].every(s => /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(s)))
       throw new ClientError("usage", "Invalid relay, fingerprint, space or commit SHA");
     const git = (...args: string[]) => execFileSync("git", ["-C", c.cwd, ...args], { encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).trim();
-    try { for (const branch of [source, target]) git("check-ref-format", "refs/heads/" + branch); }
+    try { for (const branch of [target, ...(source === undefined ? [] : [source])]) git("check-ref-format", "refs/heads/" + branch); }
     catch { throw new ClientError("usage", "Invalid branch name"); }
     const token = process.env.CROSSTALK_KEY;
     if (!token) throw new ClientError("usage", "Set CROSSTALK_KEY to a CI credential");
     const config: LoadedConfig = { relay: url.origin, relay_key, space, sequences: {}, repoDir: c.cwd, commonDir: "", assertTrusted() {}, trust() { return this; } };
     const client = new RelayClient(config, { token, timeoutMs: 5000, retries: 0, signal: AbortSignal.timeout(30000) });
-    const who = (await client.request<{ kind: string; session?: string }>("/identity")).result;
+    const who = (await client.request<{ principal: string; kind: string; session?: string }>("/identity")).result;
     if (who.kind !== "ci" || who.session) throw new Error("CI key required");
+    if (mode === "advance") {
+      if (who.principal !== "ci:remote") throw new Error("ci:remote key required");
+      await advance(client, c.cwd, { ref: "refs/heads/" + target, old: base, new: head });
+      c.out("crosstalk: reachability reported"); return 0;
+    }
     const board = (await client.request<CoordinationBoard>("/board")).result;
     if (!board.coordination.policy) throw new Error("Policy unavailable");
     if (!board.coordination.policy.protected_branches?.some(b => b.replace(/^refs\/heads\//, "") === target)) {
@@ -41,14 +50,16 @@ export async function mergeGate(c: CommandContext): Promise<number> {
         refs.set("refs/heads/" + ref.slice(prefix.length), sha);
       }
     }
-    refs.set("refs/heads/" + source, head);
+    if (source !== undefined) refs.set("refs/heads/" + source, head);
     refs.set("refs/heads/" + target, head);
-    const primary = { source_branch: source, source_head: head };
-    const sources = [primary, ...draftSources(c.cwd, { old: base, new: head, ref: "refs/heads/" + target }, refs, board.coordination.branches, [primary])];
+    const update = { old: base, new: head, ref: "refs/heads/" + target };
+    const protectedBranches = new Set((board.coordination.policy.protected_branches ?? []).map(b => b.replace(/^refs\/heads\//, "")));
+    const sources = source === undefined ? resolveSources(c.cwd, update, refs, protectedBranches) : [{ source_branch: source, source_head: head }];
+    sources.push(...draftSources(c.cwd, update, refs, board.coordination.branches, sources));
     const result = await checkMergeSources(client, target, sources);
     c.out(result.stdout || "crosstalk: merge gate passed"); return result.exitCode;
   } catch (error) {
-    if (error instanceof ClientError && error.code === "usage") { c.err(error.message); return 2; }
+    if (error instanceof ClientError && error.code === "usage") { c.err(error.message); return mode === "advance" ? 1 : 2; }
     c.err("crosstalk could not confirm the gate"); return 1;
   }
 }

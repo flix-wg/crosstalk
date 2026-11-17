@@ -72,7 +72,7 @@ On GitHub, enroll a CI principal, store its key as the repository secret `CROSST
 
 ```yaml
 name: crosstalk
-on: pull_request_target
+on: [pull_request_target, merge_group]
 permissions:
   contents: read
 jobs:
@@ -81,9 +81,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.base.sha }}
           fetch-depth: 0
-      - env:
+      - if: github.event_name == 'pull_request_target'
+        env:
           PR_NUMBER: ${{ github.event.number }}
         run: git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
       - uses: flix-wg/crosstalk@main
@@ -94,7 +95,37 @@ jobs:
           key: ${{ secrets.CROSSTALK_KEY }}
 ```
 
-Mark `merge-gate` as a required status check in branch protection. The action builds its own code and inspects git objects; it never runs PR code. Without remote hooks or a required check, draft status is advisory.
+Mark `merge-gate` as a required status check in branch protection. The check reflects relay state when it ran: use a merge queue (or re-run the check) to evaluate it at merge time; the self-hosted pre-receive hook has no such gap. Merge-group workflows run code from the merge group, including PR code, so use merge queues only where PR authors can already push workflow changes; for untrusted forks, rely on the `pull_request_target` required check. Without remote hooks or a required check, draft status is advisory.
+
+Report accepted merges so relay reachability can satisfy deployment `require_on` policies and permit branch-name reuse. Enroll `ci:remote` and store its key in a separate `CROSSTALK_REMOTE_KEY` secret; add a second workflow for your protected branches:
+
+```yaml
+name: crosstalk reachability
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  advance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: flix-wg/crosstalk@main
+        with:
+          mode: advance
+          relay: https://relay.example.org
+          relay-key: sha256:<fingerprint>
+          space: <space-uuid>
+          key: ${{ secrets.CROSSTALK_REMOTE_KEY }}
+          target: ${{ github.ref_name }}
+          base: ${{ github.event.before }}
+          head: ${{ github.event.after }}
+```
+
+The equivalent CLI is `xt gate advance --relay <url> --relay-key <fingerprint> --space <uuid> --ref <branch> --old <sha> --new <sha>`, with `CROSSTALK_KEY` set to the `ci:remote` key. It ignores repository configuration, reports all ancestors when old is zero, and uses stable request IDs so failed runs can be retried.
 
 ## Repository configuration
 

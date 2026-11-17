@@ -163,7 +163,7 @@ export async function runCLI(argv: string[], options: CLIOptions = {}): Promise<
     const error = e instanceof ClientError ? e : new ClientError("error", "Command failed; check configuration and arguments");
     if (rest.includes("--json")) out(JSON.stringify({ error: { code: error.code, message: error.message, details: error.details } }));
     else err(render({ code: error.code, message: error.message }, { hooks: false, peer: false }) + (error.details ? "\n" + render(error.details, { hooks: false }) : ""));
-    if (name === "gate") return error.code === "usage" ? 2 : 1;
+    if (name === "gate") return rest[0] !== "advance" && error.code === "usage" ? 2 : 1;
     return ["unknown", "queued"].includes(error.code) ? 4 : ["conflict", "stale_revision", "blocked", "frozen"].includes(error.code) ? 3 : 1;
   }
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import type { BranchStatus } from "../schema/index.js";
 import type { RelayClient } from "./http.js";
@@ -6,7 +7,7 @@ export interface Update { old: string; new: string; ref: string }
 const zero = (s: string) => /^0+$/.test(s);
 const name = (s: string) => s.replace(/^refs\/heads\//, "");
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000, env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).trim();
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).trim();
 }
 export function ancestor(cwd: string, a: string, b: string, timeoutMs = 10000): boolean {
   try {
@@ -52,4 +53,19 @@ export async function checkMergeSources(client: RelayClient, target: string, sou
     if (result.verdict === "warn") messages.push(message);
   }
   return { exitCode: 0, stdout: messages.join("\n") };
+}
+
+// Relay receipt IDs make repeated post-receive delivery safe across processes,
+// crashes and multiple protected branches, without a second notification ledger.
+export function stableId(value: string): string { const h = createHash("sha256").update(value).digest("hex"); return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`; }
+export async function advance(client: RelayClient, cwd: string, u: Update, seed = false): Promise<void> {
+  const commits = git(cwd, "rev-list", zero(u.old) ? u.new : u.old + ".." + u.new).split("\n").filter(Boolean);
+  // 200 SHA-256 IDs plus the envelope fit the 16 KiB request cap.
+  for (let i = 0; i < commits.length; i += 200) {
+    if (seed) await client.send("ref.seed", { ref: u.ref, commits: commits.slice(i, i + 200) });
+    else {
+      const args = { ref: u.ref, old: zero(u.old) ? null : u.old, new: u.new, commits: commits.slice(i, i + 200) };
+      await client.command({ request_id: stableId(client.config.space + "/advance/" + JSON.stringify(args)), op: "ref.advance", args });
+    }
+  }
 }

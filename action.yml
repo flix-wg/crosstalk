@@ -1,6 +1,9 @@
 name: crosstalk merge gate
 description: Enforce branch status and draft ancestry using a pinned crosstalk relay
 inputs:
+  mode:
+    description: merge or advance (advance requires the ci:remote key)
+    default: merge
   relay:
     description: Relay HTTPS origin
     required: true
@@ -15,16 +18,16 @@ inputs:
     required: true
   target:
     description: Target branch
-    default: ${{ github.event.pull_request.base.ref }}
+    default: ${{ github.event.merge_group.base_ref || github.event.pull_request.base.ref || github.ref }}
   source:
     description: Source branch
     default: ${{ github.event.pull_request.head.ref }}
   head:
-    description: PR head commit
-    default: ${{ github.event.pull_request.head.sha }}
+    description: Head or new commit
+    default: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.event.after }}
   base:
-    description: Target base commit
-    default: ${{ github.event.pull_request.base.sha }}
+    description: Base or old commit
+    default: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before }}
 runs:
   using: composite
   steps:
@@ -37,6 +40,8 @@ runs:
         npm ci && npm run build
     - shell: bash
       env:
+        XT_MODE: ${{ inputs.mode }}
+        XT_EVENT: ${{ github.event_name }}
         CROSSTALK_KEY: ${{ inputs.key }}
         XT_RELAY: ${{ inputs.relay }}
         XT_RELAY_KEY: ${{ inputs.relay-key }}
@@ -47,6 +52,18 @@ runs:
         XT_BASE: ${{ inputs.base }}
       run: |
         cd "$GITHUB_WORKSPACE"
-        node "$GITHUB_ACTION_PATH/dist/cli/main.js" gate merge \
-          --relay "$XT_RELAY" --relay-key "$XT_RELAY_KEY" --space "$XT_SPACE" \
-          --target "$XT_TARGET" --source "$XT_SOURCE" --head "$XT_HEAD" --base "$XT_BASE"
+        XT_TARGET="${XT_TARGET#refs/heads/}"
+        args=(--relay "$XT_RELAY" --relay-key "$XT_RELAY_KEY" --space "$XT_SPACE")
+        case "$XT_MODE" in
+          merge)
+            args+=(--target "$XT_TARGET" --head "$XT_HEAD" --base "$XT_BASE")
+            if [[ "$XT_EVENT" != merge_group && -n "$XT_SOURCE" ]]; then
+              args+=(--source "$XT_SOURCE")
+            fi
+            ;;
+          advance)
+            args+=(--ref "$XT_TARGET" --old "$XT_BASE" --new "$XT_HEAD")
+            ;;
+          *) echo "Invalid crosstalk mode" >&2; exit 1 ;;
+        esac
+        node "$GITHUB_ACTION_PATH/dist/cli/main.js" gate "$XT_MODE" "${args[@]}"

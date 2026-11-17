@@ -14,7 +14,7 @@ export const help: Record<string, string> = {
   asks: "List human asks",
   answer: "Answer <ask-id> <choice> in a terminal — --text <text> --head <oid> --artifact <digest>",
   branch: "Set <wip|draft|ready> — --branch <name> --head <oid> --note <text> --pending <text> --owner <principal>",
-  gate: "CI merge gate: merge --relay <url> --relay-key <fingerprint> --space <uuid> --target <branch> --source <branch> --head <sha> --base <sha>; CROSSTALK_KEY supplies the CI key",
+  gate: "CI gate: merge --target <branch> [--source <branch>] --head <sha> --base <sha>; advance --ref <branch> --old <sha> --new <sha>. Both require --relay <url> --relay-key <fingerprint> --space <uuid> and CROSSTALK_KEY (advance requires ci:remote)",
   check: "Preview merge --target <branch> [--branch <source> --head <oid> --unknown-source] or deploy <env> --sha <oid> --artifact <digest> --lease <id> --fence <n> --holder <session>",
   override: "Record merge override — --branch <name> or --target <name>, --head <oid> --reason <text>",
   env: "Adopt an environment: adopt <env> --sha <oid> --artifact <digest>",

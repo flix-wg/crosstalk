@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { loadConfig, loadAgentKey, credentialScope, RelayClient, render, Workspace, editConflicts, reservationConflicts, resolveSources, draftSources, checkMergeSources } from "../client/index.js";
+import { loadConfig, loadAgentKey, credentialScope, RelayClient, render, Workspace, editConflicts, reservationConflicts, resolveSources, draftSources, checkMergeSources, advance, stableId } from "../client/index.js";
 import type { CoordinationBoard } from "../client/index.js";
 import type { Update } from "../client/index.js";
 export type { Update } from "../client/index.js";
@@ -60,20 +59,6 @@ export async function runPreReceive(input: string | Buffer | Update[], options: 
     }
     return { exitCode: 0, stdout: messages.join("\n") };
   } catch { return { exitCode: options.advisory ? 0 : 1, stdout: options.advisory ? "crosstalk: gate checks unavailable" : "crosstalk could not confirm the gate; push rejected" }; }
-}
-// Relay receipt IDs make repeated post-receive delivery safe across processes,
-// crashes and multiple protected branches, without a second notification ledger.
-function stableId(value: string): string { const h = createHash("sha256").update(value).digest("hex"); return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`; }
-async function advance(client: RelayClient, cwd: string, u: Update, seed = false): Promise<void> {
-  const commits = git(cwd, "rev-list", zero(u.old) ? u.new : u.old + ".." + u.new).split("\n").filter(Boolean);
-  // 200 SHA-256 IDs plus the envelope fit the 16 KiB request cap.
-  for (let i = 0; i < commits.length; i += 200) {
-    if (seed) await client.send("ref.seed", { ref: u.ref, commits: commits.slice(i, i + 200) });
-    else {
-      const args = { ref: u.ref, old: zero(u.old) ? null : u.old, new: u.new, commits: commits.slice(i, i + 200) };
-      await client.command({ request_id: stableId(client.config.space + "/advance/" + JSON.stringify(args)), op: "ref.advance", args });
-    }
-  }
 }
 export async function runPostReceive(input: string | Buffer | Update[], options: GitHookOptions = {}): Promise<GitHookResult> {
   const cwd = options.cwd ?? process.cwd();

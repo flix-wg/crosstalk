@@ -23,5 +23,5 @@ export { readTerminal, requireHumanTTY } from "./tty.js";
 export { harnessAdapter, harnessRegistry } from "./harnesses/index.js";
 export type { Harness, HarnessAdapter, HookEvent, HookOutput } from "./harnesses/index.js";
 
-export { resolveSources, draftSources, checkMergeSources, ancestor } from "./merge-gate.js";
+export { resolveSources, draftSources, checkMergeSources, ancestor, advance, stableId } from "./merge-gate.js";
 export type { Update } from "./merge-gate.js";

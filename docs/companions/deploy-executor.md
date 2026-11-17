@@ -70,4 +70,3 @@ A `started` record means "unknown whether it switched". The executor MUST refuse
 Every terminal record with `reported: false` MUST be sent to `/deploy/report` and marked reported only after the relay's receipt. Duplicates are harmless; the relay deduplicates by `op`.
 
 **What this enforces.** A stale holder cannot promote, because its fence no longer equals `installed.fence` once a successor installs, and install cannot run while an operation is in flight. A ticket for artifact A cannot deploy B. **Not covered:** a `promote` command that ignores its argument, and deploy paths that bypass the executor. There is no break-glass in 2.0: while the relay is down, executor deploys are impossible; operators deploy by hand and reconcile afterwards.
-
