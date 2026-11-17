@@ -259,3 +259,21 @@ test("hooks open the shared cache and skip metadata writes while another agent h
     cache.close();
   } finally { other.exec("ROLLBACK"); other.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("client sends its version and rejects a different major on handshake or normal responses", async () => {
+  const config = trust(repo(randomUUID(), "https://example.invalid").dir);
+  for (const mismatchAt of ["hello", "board", "none"]) {
+    const paths: string[] = [];
+    const client = new RelayClient(config, { token: "unused", fetch: async (input, init) => {
+      expect(new Headers(init?.headers).get("Crosstalk-Protocol")).toBe("1.0");
+      const path = String(input).endsWith("/v1/hello") ? "hello" : "board";
+      paths.push(path);
+      const response = path === "hello" ? hello(init) : Response.json({ epoch: randomUUID(), seq: 0, result: {} });
+      response.headers.set("Crosstalk-Protocol", path === mismatchAt ? "2.0" : "1.99");
+      return response;
+    } });
+    if (mismatchAt === "none") await expect(client.request("/board")).resolves.toMatchObject({ result: {} });
+    else await expect(client.request("/board")).rejects.toMatchObject({ code: "unsupported_version", message: expect.stringContaining("major") });
+    expect(paths).toEqual(mismatchAt === "hello" ? ["hello"] : ["hello", "board"]);
+  }
+});

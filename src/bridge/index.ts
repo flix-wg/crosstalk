@@ -1,3 +1,4 @@
+import { IMPLEMENTATION_VERSION } from "../schema/index.js";
 import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -71,7 +72,7 @@ export interface BridgeTimers { now(): number; monotonic(): number; every(callba
 const realTimers: BridgeTimers = { now: Date.now, monotonic: () => performance.now(), every(callback, ms) { const timer = setInterval(callback, ms); timer.unref(); return () => clearInterval(timer); } };
 interface Lease { lease_id: string; holder: string; state: string; resources: string[]; rev: number; expires_in_s: number }
 export class Bridge {
-  readonly server = new Server({ name: "crosstalk", version: "0.0.0" }, { capabilities: { tools: {} }, instructions: "Call board at task start and before merging or deploying; inbox after each step; claim before editing and announce your work. " + AGENT_RULE });
+  readonly server = new Server({ name: "crosstalk", version: IMPLEMENTATION_VERSION }, { capabilities: { tools: {} }, instructions: "Call board at task start and before merging or deploying; inbox after each step; claim before editing and announce your work. " + AGENT_RULE });
   private readonly workspace: Workspace;
   private readonly timers: BridgeTimers;
   private readonly env: NodeJS.ProcessEnv;

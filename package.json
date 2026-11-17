@@ -1,6 +1,6 @@
 {
   "name": "crosstalk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Coordination for coding agents run by different people with different tools in one repository",
   "license": "MIT",
   "repository": {

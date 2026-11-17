@@ -1,3 +1,5 @@
+import { openStore } from "../src/store-sqlite/index.js";
+import type { Event } from "../src/schema/index.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +9,7 @@ import { randomUUID, createHash, createPublicKey } from "node:crypto";
 import { startRelay, restoreDatabase } from "../src/relay/index.js";
 import { trust, RelayClient, credentialScope } from "../src/client/index.js";
 import { exportOnce, verify, AUDIT_REF } from "../src/exporter/index.js";
-import { GENESIS_PREV_HASH } from "../src/schema/index.js";
+import { eventHash, validateEventTolerant, GENESIS_PREV_HASH } from "../src/schema/index.js";
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); vi.unstubAllEnvs(); });
 test("bare-repository exports attest both chains, retry concurrent writers, retain restored epochs and detect the first tampered line", { timeout: 90000 }, async () => {
@@ -35,6 +37,23 @@ test("bare-repository exports attest both chains, retry concurrent writers, reta
   await session.send("message.send", { to: ["all"], context_id: randomUUID(), parts: [{ kind: "text", text: "private message excluded" }] });
   await expect(ci.request("/audit/attest", { through_seq: 1, xhash: GENESIS_PREV_HASH })).rejects.toMatchObject({ code: "conflict" });
   await expect(session.request("/audit/attest", { through_seq: 0, xhash: GENESIS_PREV_HASH })).rejects.toMatchObject({ code: "not_authorized" });
+  // Simulate a newer relay's persisted events, retaining their original content in both chains.
+  const store = openStore(settings.database);
+  store.tx(tx => {
+    let prev = GENESIS_PREV_HASH;
+    const rows = tx.all<{ seq: number; event: string }>("SELECT seq,event FROM events WHERE space=? ORDER BY seq", space);
+    for (const row of rows) {
+      const event = JSON.parse(row.event) as Event;
+      if (row.seq === rows[0].seq) Object.assign(event, { future_envelope: true, actor: { ...event.actor, future_actor: true }, body: { ...event.body, future_body: true } });
+      if (row.seq === rows.at(-1)!.seq) Object.assign(event, { body: { type: "future.event", payload: "unknown content excluded" } });
+      event.prev_hash = prev; event.hash = eventHash(prev, event); prev = event.hash;
+      expect(validateEventTolerant(event)).toBe(true);
+      expect(validateEventTolerant({ ...event, seq: "bad" })).toBe(false);
+      tx.run("UPDATE events SET event=? WHERE space=? AND seq=?", JSON.stringify(event), space, row.seq);
+    }
+    tx.run("UPDATE spaces SET hash=? WHERE space=?", prev, space);
+  });
+  store.close();
   const concurrent = await Promise.all([exportOnce(repo), exportOnce(repo)]);
   expect(concurrent[0].through_seq).toBe(concurrent[1].through_seq);
   expect(verify(repo).xhash).toBe(concurrent[0].xhash);
@@ -60,7 +79,8 @@ test("bare-repository exports attest both chains, retry concurrent writers, reta
   await expect(session.request("/audit/published", { through_seq: exported.through_seq, xhash: exported.xhash })).rejects.toMatchObject({ code: "not_authorized" });
   const paths = git("ls-tree", "-r", "--name-only", AUDIT_REF).split("\n"); const file = paths.find(p => p.endsWith(".jsonl"))!;
   const text = git("show", AUDIT_REF + ":" + file);
-  expect(text).not.toContain("private message excluded"); expect(text).toContain('"x":"skip"'); expect(text).toContain('"type":"answer"'); expect(text).toContain('"type":"decision"');
+  expect(text).toContain('"future_envelope":true'); expect(text).toContain('"future_body":true'); expect(text).toContain('"future_actor":true');
+  expect(text).not.toContain("unknown content excluded"); expect(text).not.toContain("private message excluded"); expect(text).toContain('"x":"skip"'); expect(text).toContain('"type":"answer"'); expect(text).toContain('"type":"decision"');
   const board = await ci.request<{ audit: { exported_seq: number } }>("/board"); expect(board.result.audit.exported_seq).toBe(exported.through_seq);
   // A failed read of an existing base blob must not be treated as an empty day file.
   const bin = join(root, "fail-show"); mkdirSync(bin);

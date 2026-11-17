@@ -26,6 +26,9 @@ export const askOpen: Handler = c => {
   if (!cmd.args.to.startsWith("human:") || !tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, cmd.args.to))
     return fail(tx, actor.space, "not_found", "Addressed human not enrolled");
   if (cmd.args.deadline && Date.parse(cmd.args.deadline) <= ctx.now()) return fail(tx, actor.space, "invalid_request", "Deadline must be in the future");
+  if (cmd.args.kind === "approval" && cmd.args.blocks?.length &&
+      (!cmd.args.bound_head || (cmd.args.blocks.some(scope => scope.startsWith("deploy:")) && !cmd.args.bound_artifact)))
+    return fail(tx, actor.space, "invalid_request", "Blocking approval requires bound_head and deploy scopes require bound_artifact");
   let resources: string[] | undefined;
   try { resources = cmd.args.resources?.map(canonicalKey); } catch { return fail(tx, actor.space, "invalid_resource", "Invalid ask resource"); }
   const body: Ask = { ...cmd.args, ...(resources ? { resources } : {}), type: "ask", ask_id: ctx.uuid(), rev: 1, state: "open" };
@@ -63,7 +66,7 @@ export const askChange: Handler = c => {
   if (ask.kind === "question" && ask.options && !ask.options.includes(cmd.args.choice)) return fail(tx, actor.space, "invalid_request", "Choice must be a question option");
   if (!reaffirm && (cmd.args.bound_head !== undefined || cmd.args.bound_artifact !== undefined)) return fail(tx, actor.space, "invalid_request", "Revision changes require reaffirm");
   if (reaffirm && (cmd.args.choice !== "approve" || !cmd.args.bound_head)) return fail(tx, actor.space, "invalid_request", "Reaffirm requires approval and a new head");
-  const updated: Ask = { ...ask, rev: ask.rev + 1, state: cmd.args.choice === "reject" ? "rejected" : "answered",
+  const updated: Ask = { ...ask, rev: ask.rev + 1, state: ask.kind === "approval" && cmd.args.choice === "reject" ? "rejected" : "answered",
     ...(reaffirm ? { bound_head: cmd.args.bound_head!, ...(cmd.args.bound_artifact ? { bound_artifact: cmd.args.bound_artifact } : {}) } : {}) };
   save(c, updated);
   emitCommand(c, { type: "answer", ask_id: ask.ask_id, answer_id: ctx.uuid(), choice: cmd.args.choice, ...(cmd.args.text ? { text: cmd.args.text } : {}) });

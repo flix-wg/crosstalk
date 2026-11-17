@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { ClientError, RelayClient, LocalCache, loadConfig, loadAgentKey, credentialScope, verifyRelaySignature } from "../client/index.js";
-import { auditSigningText, eventHash, exportChain, exportHash, GENESIS_PREV_HASH, jcs, validateEvent } from "../schema/index.js";
+import { auditSigningText, eventHash, exportChain, exportHash, GENESIS_PREV_HASH, jcs, validateEventTolerant } from "../schema/index.js";
 import type { AuditHead, Event, ExportLine } from "../schema/index.js";
 export const AUDIT_REF = "refs/crosstalk/audit/v1";
 function git(repo: string, args: string[], input?: string, extra: NodeJS.ProcessEnv = {}): string {
@@ -50,7 +50,7 @@ function verifyFiles(files: Map<string, string>, pin: string, space: string): Au
         catch { return bad(path, i + 1, "Broken export hash chain"); }
         if (line.x === "event") {
           const e = line.event;
-          if (!validateEvent(e) || e.space !== space || e.seq !== next || e.prev_hash !== prev || e.hash !== eventHash(prev, e)) bad(path, i + 1, "Broken event chain or sequence");
+          if (!validateEventTolerant(e) || e.space !== space || e.seq !== next || e.prev_hash !== prev || e.hash !== eventHash(prev, e)) bad(path, i + 1, "Broken event chain or sequence");
           next++; prev = e.hash;
         } else if (line.x === "skip") {
           if (line.from_seq !== next || !Number.isSafeInteger(line.to_seq) || line.to_seq < line.from_seq || line.count !== line.to_seq - line.from_seq + 1 || !/^sha256:[0-9a-f]{64}$/.test(line.last_hash)) bad(path, i + 1, "Invalid skip range");
@@ -104,7 +104,7 @@ export async function exportOnce(repoDir: string): Promise<AuditHead> {
       for (const event of events) if (event.body.type === "ask" && event.body.kind === "approval") approvals.add(event.body.ask_id);
       for (let i = 0; i < lines.length; i++) {
         const e = events[i]!, line = lines[i]!;
-        if (e.seq !== after + 1 || e.prev_hash !== prev || !validateEvent(e) || e.hash !== eventHash(prev, e)) throw new ClientError("resync", "Relay export chain gap");
+        if (e.seq !== after + 1 || e.prev_hash !== prev || !validateEventTolerant(e) || e.hash !== eventHash(prev, e)) throw new ClientError("resync", "Relay export chain gap");
         prev = e.hash;
         const path = prefix + "events/" + e.recorded_at.slice(0, 10).replaceAll("-", "/") + ".jsonl";
         if (known && !files.has(path)) {

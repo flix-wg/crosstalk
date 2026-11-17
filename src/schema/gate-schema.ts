@@ -31,3 +31,17 @@ export const gateSchema = { oneOf: [
     ["space", "now", "kind", "source_head", "target_branch", "unknown_source"]),
   object({ space: uuid, now: { type: "number" }, kind: { const: "deploy" }, env, sha: oid, artifact: eventSchema.$defs.digest, lease_id: uuid, fence: counter, holder: uuid }),
 ] };
+
+// The relay adds space and now after validating the published wire input.
+export const wireGateSchema = {
+  $id: "https://flix-wg.github.io/crosstalk/schema/v1/gate.json",
+  oneOf: gateSchema.oneOf.map(({ properties, required, ...rest }) => ({
+    ...rest, properties: Object.fromEntries(Object.entries(properties).filter(([key]) => key !== "space" && key !== "now")),
+    required: required.filter(key => key !== "space" && key !== "now"),
+  })),
+};
+export const deploySchema = {
+  $id: "https://flix-wg.github.io/crosstalk/schema/v1/deploy.json",
+  $defs: { request: deployInputSchema, ticket: ticketSchema },
+  oneOf: [{ $ref: "#/$defs/request" }, { $ref: "#/$defs/ticket" }],
+};

@@ -1,3 +1,5 @@
+import { PROTOCOL_VERSION } from "../schema/index.js";
+import { checkProtocol } from "./protocol.js";
 import { reservationFloor } from "./reservations.js";
 import type { Ask as importAsk, Command, CommandArgs, Event as RelayEvent } from "../schema/index.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -45,10 +47,11 @@ export class RelayClient {
       const started = performance.now();
       try {
         response = await this.fetcher(this.config.relay + "/v1/hello", {
-          method: "POST", signal, redirect: "error", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce }),
+          method: "POST", signal, redirect: "error", headers: { "content-type": "application/json", "Crosstalk-Protocol": PROTOCOL_VERSION }, body: JSON.stringify({ nonce }),
         });
+        checkProtocol(response);
         data = await response.json();
-      } catch { throw new TransportError("Relay response unavailable"); }
+      } catch (e) { if (e instanceof ClientError) throw e; throw new TransportError("Relay response unavailable"); }
       finally { this.options.onRequest?.(performance.now() - started); }
       if (response.status === 429) throw new ClientError("rate_limited", "Relay handshake rate limited", { retryAfter: Number(response.headers.get("retry-after")) * 1000 });
       if (!response.ok) throw new TransportError("Relay handshake unavailable");
@@ -75,11 +78,12 @@ export class RelayClient {
     try {
       response = await this.fetcher(this.config.relay + "/v1/spaces/" + encodeURIComponent(this.config.space) + path, {
         method: input === undefined ? "GET" : "POST", signal, redirect: "error",
-        headers: { authorization: "Bearer " + this.options.token, "content-type": "application/json" },
+        headers: { authorization: "Bearer " + this.options.token, "content-type": "application/json", "Crosstalk-Protocol": PROTOCOL_VERSION },
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       });
+      checkProtocol(response);
       data = await response.json();
-    } catch { throw new TransportError("Relay response unavailable"); }
+    } catch (e) { if (e instanceof ClientError) throw e; throw new TransportError("Relay response unavailable"); }
     finally { this.options.onRequest?.(performance.now() - started); }
     if (!data || typeof data !== "object") throw new TransportError("Invalid relay response");
     const envelope = data as { epoch?: unknown; seq?: unknown; result?: unknown; payload_hash?: unknown; error?: { code?: unknown; message?: unknown; details?: unknown } };

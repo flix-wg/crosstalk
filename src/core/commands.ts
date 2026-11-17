@@ -2,7 +2,7 @@ import { deploymentRecord, executorEnroll, freezeChange } from "./deploy.js";
 import { askOpen, askChange, overrideRecord } from "./asks.js";
 import { reserve, intent, branchSet, messaging, policySet, refAdvance } from "./coordination.js";
 import { claim, releaseOrRevoke, revokePrincipalLeases, releaseSession } from "./leases.js";
-import { validateCommand, jcs } from "../schema/index.js";
+import { validateCommand, commandArgsSchemas, jcs } from "../schema/index.js";
 import type { Command } from "../schema/index.js";
 import type { Actor, Ctx, Result, SqlTx } from "./types.js";
 import { appendEvent, fail, ok, withReceipt, spaceRow } from "./log.js";
@@ -59,11 +59,13 @@ export function execute(tx: SqlTx, ctx: Ctx, actor: Actor, input: unknown): Resu
   const commandCtx: Ctx = { ...ctx, now: () => now, uuid: () => ctx.uuid(), epoch: ctx.epoch };
   const who = identity(tx, commandCtx, actor);
   if (!who || (!who.session && who.kind !== "human" && who.kind !== "ci")) return fail(tx, actor.space, "not_authorized", "Session, human key or CI key required");
+  if (input && typeof input === "object" && "op" in input && typeof input.op === "string" && !Object.hasOwn(commandArgsSchemas, input.op))
+    return fail(tx, actor.space, "unsupported_op", "Unknown operation");
   if (!validateCommand(input)) return fail(tx, actor.space, "invalid_request", "Invalid command");
   try { jcs(input); } catch { return fail(tx, actor.space, "invalid_request", "Command must be canonical JSON data"); }
   if (input.op === "reserve" && spaceRow(tx, actor.space).frozen) return fail(tx, actor.space, "frozen", "Space is frozen");
   const handler = handlers[input.op];
-  if (!handler) return fail(tx, actor.space, "invalid_request", "Operation is not implemented");
+  if (!handler) return fail(tx, actor.space, "unsupported_op", "Operation is not implemented");
   return withReceipt(tx, actor.space, actor.session ? actor.principal + "/" + actor.session : actor.principal, input.request_id, input,
     () => handler({ tx, ctx: commandCtx, actor, who, cmd: input }));
 }

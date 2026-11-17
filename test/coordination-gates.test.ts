@@ -98,8 +98,8 @@ test("asks enforce addressed human CAS and atomically record bound decisions", (
     value(f.command(f.admin, "ask.answer", { ask_id: ungated.ask_id, choice: "approve" }, { expect_rev: 1 }));
     const last = f.store.tx(tx => tx.get<{ body: string }>("SELECT body FROM decisions ORDER BY seq DESC LIMIT 1"))!;
     expect(JSON.parse(last.body)).not.toHaveProperty("scope");
-    const question = value<{ ask_id: string }>(f.command(agent, "ask.open", { kind: "question", to: "human:admin", question: "Which?", options: ["one"] }));
-    value(f.command(f.admin, "ask.answer", { ask_id: question.ask_id, choice: "one" }, { expect_rev: 1 }));
+    const question = value<{ ask_id: string }>(f.command(agent, "ask.open", { kind: "question", to: "human:admin", question: "Which?", options: ["reject"] }));
+    expect(value(f.command(f.admin, "ask.answer", { ask_id: question.ask_id, choice: "reject" }, { expect_rev: 1 }))).toMatchObject({ state: "answered" });
     expect(f.store.tx(tx => tx.all("SELECT * FROM decisions"))).toHaveLength(3);
   } finally { f.store.close(); }
 });
@@ -213,7 +213,7 @@ test("tickets and 30-second authorizations are signed, holder-bound, epoch-bound
     const auth = value<{ payload: { exec_allowed_until: number }; signature: string }>(authorize());
     expect(auth.payload).toMatchObject({ ...f.deploy, holder: f.holder.session, exec_allowed_until: f.ctx.now() + 30_000 });
     expect(verify(jcs(auth.payload), Buffer.from(auth.signature, "base64"), f.publicKey)).toBe(true);
-    value(f.command(f.holder, "ask.open", { kind: "approval", to: "human:admin", question: "Wait", blocks: ["deploy:env:prod"] }));
+    value(f.command(f.holder, "ask.open", { kind: "approval", to: "human:admin", question: "Wait", blocks: ["deploy:env:prod"], bound_head: head, bound_artifact: artifact }));
     expect(authorize()).toMatchObject({ error: { code: "conflict" } });
     value(f.command(f.admin, "space.freeze", {}));
     expect(authorize()).toMatchObject({ error: { code: "frozen" } });
@@ -290,5 +290,15 @@ test("executor operations require the env's active binding and a direct CI key",
     value(f.command(f.admin, "principal.revoke", { principal: f.executor.principal }));
     expect(f.command(f.admin, "executor.enroll", { env: "prod", executor: f.executor.principal, max_fence: 50 })).toMatchObject({ error: { code: "not_authorized" } });
     for (const result of calls(f.executor)) expect(result).toMatchObject({ error: { code: "not_authorized" } });
+  } finally { f.store.close(); }
+});
+
+test("blocking approvals require a head and deploy artifact before creating a requirement", () => {
+  const f = setup();
+  try {
+    const args = { kind: "approval", to: "human:admin", question: "Ship?" };
+    for (const extra of [{ blocks: ["merge:branch:main"] }, { blocks: ["deploy:env:prod"], bound_head: "a".repeat(40) }])
+      expect(f.command(f.admin, "ask.open", { ...args, ...extra })).toMatchObject({ error: { code: "invalid_request" } });
+    expect(value(f.command(f.admin, "ask.open", { ...args, blocks: ["deploy:env:prod"], bound_head: "a".repeat(40), bound_artifact: "sha256:" + "b".repeat(64) }))).toMatchObject({ state: "open" });
   } finally { f.store.close(); }
 });

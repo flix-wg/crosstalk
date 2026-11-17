@@ -10,7 +10,8 @@ export function exportable(event: Event, approvals: ReadonlySet<string>): boolea
     case "lease": return b.resources.some(r => r.startsWith("env:") || r.startsWith("branch:"));
     case "ask": return b.kind === "approval";
     case "answer": return approvals.has(b.ask_id);
-    default: return true;
+    case "branch_status": case "reservation": case "decision": case "deployment": case "admin": return true;
+    default: return false;
   }
 }
 export function exportHash(line: Omit<ExportLine, "xhash"> | ExportLine): string {

@@ -646,7 +646,7 @@ GET /.well-known/crosstalk
 200 {"protocol": "crosstalk",
      "versions": [{"version": "1.0", "base": "/v1"}],
      "deprecated": [],
-     "implementation": {"name": "agent-sync", "version": "0.4.2"}}
+     "implementation": {"name": "crosstalk", "version": "0.4.2"}}
 ```
 
 `versions` lists one entry per supported major with the highest supported minor of that major. `implementation` is informational and MUST NOT be used for feature detection. `deprecated` lists features deprecated in the advertised minor (15.6).

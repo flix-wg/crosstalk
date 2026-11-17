@@ -123,3 +123,22 @@ test("reinvitation does not reactivate outstanding capabilities from before prin
   expect((await f.call("/commands", f.humanKey, { request_id: randomUUID(), op: "principal.invite", args: { principal: "human:member", role: "member" } })).status).toBe(200);
   expect((await f.call("/enroll", code, { agentKey: "x".repeat(40), humanKey: "y".repeat(40) })).status).toBe(403);
 });
+
+test("HTTP discovery and version negotiation preserve strict commands", async () => {
+  const f = await fixture();
+  const discovery = await fetch(f.relay.url + "/.well-known/crosstalk");
+  expect(discovery.headers.get("Crosstalk-Protocol")).toBe("1.0");
+  expect(await discovery.json()).toEqual({ protocol: "crosstalk", versions: [{ version: "1.0", base: "/v1" }], deprecated: [], implementation: { name: "crosstalk", version: "0.1.0" } });
+  for (const [path, status, code] of [["/v2/spaces/x", 404, "unsupported_version"], ["/v99/hello", 404, "unsupported_version"], ["/missing", 404, "not_found"], ["/v1/spaces/" + f.space + "/board", 401, "unauthenticated"]] as const) {
+    const response = await fetch(f.relay.url + path);
+    expect(response.status).toBe(status);
+    expect(response.headers.get("Crosstalk-Protocol")).toBe("1.0");
+    expect((await response.json()).error.code).toBe(code);
+  }
+  for (const [op, args, code] of [["future.op", null, "unsupported_op"], ["toString", {}, "unsupported_op"], ["executor.reconcile", { env: "prod" }, "unsupported_op"], ["lease.claim", {}, "invalid_request"]] as const) {
+    const response = await fetch(f.base + "/commands", { method: "POST", headers: { authorization: "Bearer " + f.humanKey, "content-type": "application/json", "Crosstalk-Protocol": "1.99" }, body: JSON.stringify({ request_id: randomUUID(), op, args }) });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Crosstalk-Protocol")).toBe("1.0");
+    expect((await response.json()).error.code).toBe(code);
+  }
+});

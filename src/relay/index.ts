@@ -1,3 +1,4 @@
+import { IMPLEMENTATION_VERSION, PROTOCOL_VERSION } from "../schema/index.js";
 import { provisioningTables, operatorMatches, initializeSpace, createInvitation, redeemInvitation } from "./provision.js";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -6,7 +7,7 @@ import { readFileSync, writeFileSync, statSync } from "node:fs";
 import * as core from "../core/index.js";
 import type { Ctx, Result, SqlTx } from "../core/index.js";
 import { openStore } from "../store-sqlite/index.js";
-import { sign, verify, validateGate } from "../schema/index.js";
+import { sign, verify, validateWireGate, validateGate } from "../schema/index.js";
 
 export interface RelayConfig {
   database: string;
@@ -22,7 +23,7 @@ export interface RelayConfig {
 }
 const statuses: Record<string, number> = {
   conflict: 409, stale_revision: 409, not_authorized: 403, unauthenticated: 401,
-  invalid_request: 400, invalid_resource: 400, payload_too_large: 413,
+  unsupported_op: 400, unsupported_version: 404, invalid_request: 400, invalid_resource: 400, payload_too_large: 413,
   rate_limited: 429, frozen: 423, not_found: 404, idempotency_mismatch: 422, resync: 409,
 };
 class HttpError extends Error {
@@ -112,11 +113,17 @@ export async function startRelay(config: RelayConfig): Promise<{ url: string; cl
     let space = "";
     const send = (response: unknown, status = 200) => {
       if (res.destroyed) return;
-      res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "Crosstalk-Protocol": PROTOCOL_VERSION });
       res.end(JSON.stringify(response));
     };
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname === "/.well-known/crosstalk" && req.method === "GET") {
+        send({ protocol: "crosstalk", versions: [{ version: PROTOCOL_VERSION, base: "/v1" }], deprecated: [], implementation: { name: "crosstalk", version: IMPLEMENTATION_VERSION } });
+        return;
+      }
+      const major = /^\/v(\d+)\//.exec(url.pathname)?.[1];
+      if (major !== undefined && major !== "1") throw new HttpError("unsupported_version");
       if (url.pathname === "/v1/hello" && req.method === "POST") {
         limit("hello/" + (config.trustProxy ? String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress).split(",")[0].trim() : req.socket.remoteAddress));
         const { nonce } = await body(req);
@@ -184,7 +191,7 @@ export async function startRelay(config: RelayConfig): Promise<{ url: string; cl
           if (path === "/check") {
             sessionOrCI();
             const gate = { ...input, space, now: ctx.now() };
-            if (!validateGate(gate)) return core.fail(tx, space, "invalid_request", "Invalid gate input");
+            if (!validateWireGate(input) || !validateGate(gate)) return core.fail(tx, space, "invalid_request", "Invalid gate input");
             const result = core.evaluateGate(tx, gate);
             return result.code ? core.fail(tx, space, result.code, result.reasons.join("; ")) : core.ok(tx, space, result);
           }

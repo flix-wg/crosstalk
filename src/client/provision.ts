@@ -1,3 +1,5 @@
+import { PROTOCOL_VERSION } from "../schema/index.js";
+import { checkProtocol } from "./protocol.js";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -42,7 +44,8 @@ function localKeys(scope: string): { agentKey: string; humanKey: string } {
 }
 async function provision(relay: string, path: string, token: string, input: unknown): Promise<void> {
   try {
-    const response = await fetch(relay + path, { method: "POST", redirect: "error", signal: AbortSignal.timeout(10000), headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify(input) });
+    const response = await fetch(relay + path, { method: "POST", redirect: "error", signal: AbortSignal.timeout(10000), headers: { authorization: "Bearer " + token, "content-type": "application/json", "Crosstalk-Protocol": PROTOCOL_VERSION }, body: JSON.stringify(input) });
+    checkProtocol(response);
     if (!response.ok) throw new ClientError("provision_failed", "Relay refused provisioning");
   } catch (e) { if (e instanceof ClientError) throw e; throw new ClientError("unknown", "Provisioning outcome unknown; keys are saved locally, retry with the same configuration"); }
 }

@@ -10,7 +10,7 @@ export interface Store { tx<T>(fn: (t: SqlTx) => T): T }
 /** Relay supplies an Ed25519 implementation; signatures cover canonical UTF-8 JSON. */
 export interface Signer { algorithm: "Ed25519"; sign(payload: string): string; verify(payload: string, signature: string): boolean }
 export interface Ctx { now(): number; uuid(): string; epoch: string; signer?: Signer; auditExporter?: string }
-export type ErrorCode = "resync" | "conflict" | "stale_revision" | "not_authorized" | "invalid_resource" |
+export type ErrorCode = "unsupported_op" | "unsupported_version" | "resync" | "conflict" | "stale_revision" | "not_authorized" | "invalid_resource" |
   "invalid_request" | "payload_too_large" | "rate_limited" | "frozen" | "not_found" | "idempotency_mismatch";
 export type Result<T = unknown> =
   | { payload_hash?: string; epoch: string; seq: number; result: T; receipt?: string }
