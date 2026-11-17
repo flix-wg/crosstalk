@@ -249,6 +249,12 @@ export async function startRelay(config: RelayConfig): Promise<{ url: string; cl
   }
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
+  // Node answers malformed, oversized or timed-out requests itself; keep the protocol header on those too.
+  server.on("clientError", (error: NodeJS.ErrnoException, socket) => {
+    if (!socket.writable) return socket.destroy();
+    const [status, text] = error.code === "HPE_HEADER_OVERFLOW" ? [431, "Request Header Fields Too Large"] : error.code === "ERR_HTTP_REQUEST_TIMEOUT" ? [408, "Request Timeout"] : [400, "Bad Request"];
+    socket.end(`HTTP/1.1 ${status} ${text}\r\nCrosstalk-Protocol: ${PROTOCOL_VERSION}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  });
   const sweep = () => {
     store.tx(tx => {
       const first = tx.get<{ epoch: string }>("SELECT epoch FROM spaces LIMIT 1");

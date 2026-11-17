@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { connect } from "node:net";
 import { jcs, sha256 } from "../src/schema/index.js";
 import { openStore } from "../src/store-sqlite/index.js";
 import { startRelay, restoreDatabase } from "../src/relay/index.js";
@@ -135,6 +136,12 @@ test("HTTP discovery and version negotiation preserve strict commands", async ()
     expect(response.headers.get("Crosstalk-Protocol")).toBe("1.0");
     expect((await response.json()).error.code).toBe(code);
   }
+  const url = new URL(f.relay.url);
+  const raw = await new Promise<string>(resolve => {
+    const socket = connect(Number(url.port), url.hostname, () => socket.write("GET / HTTP/1.1\r\nHost: x\r\nX: " + "a".repeat(20000) + "\r\n\r\n"));
+    socket.once("data", data => { socket.destroy(); resolve(data.toString()); });
+  });
+  expect(raw).toMatch(/^HTTP\/1\.1 431 [^]*\r\nCrosstalk-Protocol: 1\.0\r\n/);
   for (const [op, args, code] of [["future.op", null, "unsupported_op"], ["toString", {}, "unsupported_op"], ["executor.reconcile", { env: "prod" }, "unsupported_op"], ["lease.claim", {}, "invalid_request"]] as const) {
     const response = await fetch(f.base + "/commands", { method: "POST", headers: { authorization: "Bearer " + f.humanKey, "content-type": "application/json", "Crosstalk-Protocol": "1.99" }, body: JSON.stringify({ request_id: randomUUID(), op, args }) });
     expect(response.status).toBe(400);
