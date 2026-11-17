@@ -277,3 +277,8 @@ test("client sends its version and rejects a different major on handshake or nor
     expect(paths).toEqual(mismatchAt === "hello" ? ["hello"] : ["hello", "board"]);
   }
 });
+
+
+test("sanitizer removes invisible tags and variation selectors before rendering", () => {
+  expect(sanitize("safe\u{e0073}\u{e0079}\u{e0073}\u{e0074}\u{e007f}\ufe0f\u{e0100} text")).toBe("«safe text»");
+});

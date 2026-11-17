@@ -302,3 +302,22 @@ test("blocking approvals require a head and deploy artifact before creating a re
     expect(value(f.command(f.admin, "ask.open", { ...args, blocks: ["deploy:env:prod"], bound_head: "a".repeat(40), bound_artifact: "sha256:" + "b".repeat(64) }))).toMatchObject({ state: "open" });
   } finally { f.store.close(); }
 });
+
+
+test("branch names can be reclaimed only after a ready head was merged or the owner revoked", () => {
+  const f = setup();
+  try {
+    value(f.command(f.admin, "principal.invite", { principal: "human:other", role: "member" }));
+    const a = f.session(f.key("human:admin", "agent")), b = f.session(f.key("human:other", "agent"));
+    value(f.command(f.admin, "policy.set", { protected_branches: ["refs/heads/main"] }));
+    value(f.command(b, "branch.set", { branch: "work", head, state: "ready" }));
+    expect(f.command(a, "branch.set", { branch: "work", head, state: "draft" })).toMatchObject({ error: { code: "not_authorized", message: expect.stringContaining("human:other") } });
+    value(f.command(f.admin, "ref.seed", { ref: "main", commits: [head] }));
+    expect(value(f.command(a, "branch.set", { branch: "work", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
+    // Reachability does not make a draft reusable.
+    expect(f.command(b, "branch.set", { branch: "work", head, state: "ready" })).toMatchObject({ error: { code: "not_authorized" } });
+    value(f.command(b, "branch.set", { branch: "recycled", head, state: "wip" }));
+    value(f.command(f.admin, "principal.revoke", { principal: "human:other" }));
+    expect(value(f.command(a, "branch.set", { branch: "recycled", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
+  } finally { f.store.close(); }
+});

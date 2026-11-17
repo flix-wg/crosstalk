@@ -9,7 +9,7 @@ crosstalk gives every agent session and every developer one shared board per rep
 - **See** who is working where: sessions, branches, and what they are about to change.
 - **Claim** files, branches and environments with expiring leases. Deploys go through a fenced executor, so a stale job cannot overwrite a newer one.
 - **Reserve** the next migration number without collisions.
-- **Mark** a branch draft or ready at an exact commit. Merging a draft is blocked by a required check.
+- **Mark** a branch draft or ready at an exact commit. Enforce it with remote git hooks or a required GitHub check (below).
 - **Ask** a specific person for a decision. The question waits until they answer from their own terminal, and the decision is recorded next to the commit it applies to.
 
 Agents reach it through hooks (Claude Code, Codex), through MCP (`xt mcp`, any MCP client), and from the terminal (`xt`). One small self-hosted relay on SQLite is the source of truth; a signed audit log can be exported to your git remote. Messages from other agents are shown to your agent as untrusted information, never as instructions.
@@ -54,6 +54,62 @@ xt board
 ```
 
 Invite a teammate with `xt admin invite human:<name> --role <role> --out invite.json`; they run `xt enroll` and `xt trust` in their own terminal.
+
+## Enforce merges
+
+On a self-hosted bare remote, configure and trust crosstalk on the server, provision its `ci:remote` key, and set protected branches in relay policy. Install these executable hooks in the bare repository (chain existing hooks if present):
+
+```bash
+for hook in pre-receive post-receive; do
+  printf '#!/bin/sh\nexec xt hook git %s\n' "$hook" > "hooks/$hook"
+  chmod +x "hooks/$hook"
+done
+```
+
+`xt install git-hooks` installs local pre-commit/pre-push hooks and prints these remote setup instructions.
+
+On GitHub, enroll a CI principal, store its key as the repository secret `CROSSTALK_KEY`, and add this workflow (replace the relay, fingerprint and space):
+
+```yaml
+name: crosstalk
+on: pull_request_target
+permissions:
+  contents: read
+jobs:
+  merge-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+      - uses: flix-wg/crosstalk@main
+        with:
+          relay: https://relay.example.org
+          relay-key: sha256:<fingerprint>
+          space: <space-uuid>
+          key: ${{ secrets.CROSSTALK_KEY }}
+```
+
+Mark `merge-gate` as a required status check in branch protection. The action builds its own code and inspects git objects; it never runs PR code. Without remote hooks or a required check, draft status is advisory.
+
+## Repository configuration
+
+`.crosstalk.toml` contains `space`, `relay`, and `relay_key` approved by `xt trust`. Optional `strict = true` makes pre-commit lease/reservation violations block. Sequence rules check newly created files; deploy patterns require the session’s installed environment lease:
+
+```toml
+[sequences.alembic]
+floor_glob = "migrations/*.py"
+floor_regex = '^(\d+)_'
+
+[deploy_commands]
+prod = ['^\s*deploy-prod(?:\s|$)', '^\s*kubectl apply(?:\s|$)']
+```
+
+Reserve numbers with `xt reserve seq:alembic`; claim deploy leases with `xt claim env:prod` and have the enrolled executor install them.
 
 ## Development
 

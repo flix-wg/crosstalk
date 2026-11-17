@@ -204,6 +204,10 @@ export async function startRelay(config: RelayConfig): Promise<{ url: string; cl
             return core.execute(tx, ctx, actor, { request_id: input.op, op: "deployment.record", args: input });
           }
         } else {
+          if (path === "/reservations") {
+            sessionOrCI();
+            return core.ok(tx, space, tx.all("SELECT r.sequence, r.value, r.abandoned FROM reservations r JOIN sessions s ON s.id=r.holder WHERE r.space=? AND s.principal=?", space, who.principal));
+          }
           if (path === "/identity") return core.ok(tx, space, { principal: who.principal, role: who.role, kind: who.kind, session: who.session });
           const receipt = /^\/receipts\/([^/]+)$/.exec(path);
           if (receipt) return core.query(tx, { kind: "receipt", space, principal: actor.principal, session: actor.session, request_id: receipt[1] });

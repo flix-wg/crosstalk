@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { loadConfig, loadAgentKey, credentialScope, RelayClient, render, Workspace, editConflicts } from "../client/index.js";
+import { loadConfig, loadAgentKey, credentialScope, RelayClient, render, Workspace, editConflicts, reservationConflicts, resolveSources, draftSources, checkMergeSources } from "../client/index.js";
 import type { CoordinationBoard } from "../client/index.js";
-export interface Update { old: string; new: string; ref: string }
+import type { Update } from "../client/index.js";
+export type { Update } from "../client/index.js";
+export { resolveSources } from "../client/index.js";
 export interface GitHookResult { stdout: string; exitCode: number }
 export interface GitHookOptions { cwd?: string; client?: RelayClient; advisory?: boolean }
 const zero = (s: string) => /^0+$/.test(s);
@@ -34,17 +36,6 @@ function postRefs(cwd: string, updates: Update[]): Map<string, string> {
   for (const u of updates) if (u.ref.startsWith("refs/heads/")) { if (zero(u.new)) refs.delete(u.ref); else refs.set(u.ref, u.new); }
   return refs;
 }
-type Source = { source_branch?: string; source_head: string; unknown_source?: true };
-export function resolveSources(cwd: string, update: Update, refs: Map<string, string>, protectedBranches: Set<string>): Source[] {
-  const tips = (sha: string) => [...refs].filter(([ref, head]) => head === sha && !protectedBranches.has(name(ref))).map(([ref]) => ({ source_branch: name(ref), source_head: sha }));
-  const direct = tips(update.new);
-  if (direct.length) return direct;
-  const parents = git(cwd, "rev-list", "--parents", "-n", "1", update.new).split(" ").slice(1);
-  if (parents.length > 1 && !zero(update.old) && ancestor(cwd, parents[0], update.old)) {
-    return parents.slice(1).flatMap<Source>(head => { const sources = tips(head); return sources.length ? sources : [{ source_head: update.new, unknown_source: true as const }]; });
-  }
-  return [{ source_head: update.new, unknown_source: true }];
-}
 export async function runPreReceive(input: string | Buffer | Update[], options: GitHookOptions = {}): Promise<GitHookResult> {
   const cwd = options.cwd ?? process.cwd();
   try {
@@ -61,12 +52,11 @@ export async function runPreReceive(input: string | Buffer | Update[], options: 
       }
       if (!u.ref.startsWith("refs/heads/") || !protectedBranches.has(name(u.ref))) continue;
       if (zero(u.new) || (!zero(u.old) && !ancestor(cwd, u.old, u.new))) return { exitCode: 1, stdout: render({ branch: name(u.ref), error: "Non-fast-forward protected branch update rejected" }, { hooks: false, peer: false }) };
-      for (const source of resolveSources(cwd, u, refs, protectedBranches)) {
-        const check = await client.check({ kind: "merge", ...source, target_branch: name(u.ref) });
-        const message = render({ branch: source.source_branch ?? name(u.ref), ...check.result }, { hooks: false });
-        if (check.result.verdict === "block") return { exitCode: 1, stdout: message };
-        if (check.result.verdict === "warn") messages.push(message);
-      }
+      const sources = resolveSources(cwd, u, refs, protectedBranches);
+      sources.push(...draftSources(cwd, u, refs, board.coordination.branches, sources));
+      const result = await checkMergeSources(client, name(u.ref), sources);
+      if (result.exitCode) return result;
+      if (result.stdout) messages.push(result.stdout);
     }
     return { exitCode: 0, stdout: messages.join("\n") };
   } catch { return { exitCode: options.advisory ? 0 : 1, stdout: options.advisory ? "crosstalk: gate checks unavailable" : "crosstalk could not confirm the gate; push rejected" }; }
@@ -129,6 +119,9 @@ export async function runPreCommit(cwd = process.cwd()): Promise<GitHookResult> 
     const { client, record } = await w.cliSession();
     const board = (await client.board()).response.result as CoordinationBoard;
     const paths = execFileSync("git", ["-C", cwd, "diff", "--cached", "--name-only", "-z"], { encoding: "utf8", timeout: 1000 }).split("\0").filter(Boolean);
+    const added = execFileSync("git", ["-C", cwd, "diff", "--cached", "--diff-filter=A", "--name-only", "-z"], { encoding: "utf8", timeout: 1000 }).split("\0").filter(Boolean);
+    const reservations = await reservationConflicts(client, added);
+    if (reservations.length) return { exitCode: w.config.strict ? 1 : 0, stdout: render(reservations, { hooks: false }) };
     const conflicts = editConflicts(board, paths, record.session_id);
     return { exitCode: conflicts.length && w.config.strict ? 1 : 0, stdout: conflicts.length ? render({ warning: "Staged paths overlap other sessions' leases", conflicts }, { hooks: false }) : "" };
   } catch { return { exitCode: w?.config.strict ? 1 : 0, stdout: "crosstalk: lease checks unavailable" }; }

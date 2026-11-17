@@ -191,10 +191,12 @@ export function classifyShell(command: string, cwd: string | null, home = proces
         i++;
       }
       const op = words[i++], args = words.slice(i);
+      if (["merge", "rebase", "cherry-pick", "revert"].includes(op) &&
+          args.length === 1 && ["--abort", "--continue", "--skip", "--quit", ...(op === "rebase" ? ["--edit-todo"] : [])].includes(args[0])) continue;
       if (["merge", "pull", "rebase", "cherry-pick"].includes(op)) {
         const refs: string[] = [];
         let unknownOption: string | undefined;
-        const flags = ["--no-ff", "--ff", "--ff-only", "--squash", "--no-edit", "--no-verify", "-q", "--stat", "--no-stat"];
+        const flags = ["--no-ff", "--ff", "--ff-only", "--squash", "--no-edit", "--no-verify", "-q", "--stat", "--no-stat", ...(op === "pull" ? ["--rebase", "-r", "--no-rebase"] : [])];
         for (let j = 0; j < args.length; j++) {
           const arg = args[j];
           if (arg === "--") { refs.push(...args.slice(j + 1)); break; }

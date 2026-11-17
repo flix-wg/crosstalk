@@ -10,7 +10,7 @@ export { render, sanitize, scanSecrets, FRAMING } from "./render.js";
 export { branchArguments, Workspace, credentialScope, gitIdentity, fallbackHarnessId } from "./session.js";
 export type { SessionRecord } from "./session.js";
 export { initialize, enroll, invite } from "./provision.js";
-export { reservationFloor } from "./reservations.js";
+export { reservationFloor, reservationConflicts } from "./reservations.js";
 export { relevantBoard } from "./presentation.js";
 
 export { verifyRelaySignature } from "./signature.js";
@@ -22,3 +22,6 @@ export { readTerminal, requireHumanTTY } from "./tty.js";
 
 export { harnessAdapter, harnessRegistry } from "./harnesses/index.js";
 export type { Harness, HarnessAdapter, HookEvent, HookOutput } from "./harnesses/index.js";
+
+export { resolveSources, draftSources, checkMergeSources, ancestor } from "./merge-gate.js";
+export type { Update } from "./merge-gate.js";

@@ -1,13 +1,13 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, existsSync } from "node:fs";
 import type { Event } from "../schema/index.js";
 import type { SessionRecord } from "../client/index.js";
 import { jcs, validateTicket } from "../schema/index.js";
 import { execFileSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { appendFileSync } from "node:fs";
-import { Workspace, ClientError, render, hookDigest, gitIdentity, editConflicts } from "../client/index.js";
+import { Workspace, ClientError, render, hookDigest, gitIdentity, editConflicts, ancestor, reservationConflicts } from "../client/index.js";
 import type { CoordinationBoard } from "../client/index.js";
-import { classifyShell } from "./shell.js";
+import { classifyShell, segments } from "./shell.js";
 import { harnessAdapter } from "../client/index.js";
 import type { HookOutput } from "../client/index.js";
 export type { Harness } from "../client/index.js";
@@ -45,10 +45,17 @@ async function runHookInner(harness: string, event: string, stdin: string, start
     if (actions.some(a => a.kind === "human")) return output(undefined, "deny", "crosstalk: human-only xt command; ask your developer to run it in a terminal");
     const unknownOption = actions.find(a => a.unknownOption)?.unknownOption;
     if (unknownOption) return output(undefined, "deny", "crosstalk could not understand option " + unknownOption + "; use supported options or ask your developer to run the command; remote git hooks still apply");
+    // Until trusted config is loaded, a shell command may match a deploy rule.
+    gate = input.action.kind === "shell";
     const opening = performance.now();
     workspace = new Workspace(input.cwd, transport, { fastMetadata: true });
     swallowed.timings.workspace_ms = Math.round(performance.now() - opening);
     const w = workspace;
+    const deployEnvs = input.action.kind === "shell" ? Object.entries(w.config.deploy_commands ?? {})
+      .filter(([, patterns]) => segments(input.action.kind === "shell" ? input.action.command : "", input.cwd, process.env.HOME ?? "/")
+        .some(segment => patterns.some(pattern => new RegExp(pattern).test(segment.head))))
+      .map(([env]) => env) : [];
+    gate = actions.length > 0 || deployEnvs.length > 0;
     digestKey = "hook-digest:" + w.config.repoDir + "/" + harness + "/" + input.sessionId;
     if (generic === "session_end") {
       w.markEnded(input.sessionId);
@@ -100,11 +107,20 @@ async function runHookInner(harness: string, event: string, stdin: string, start
       w.cache.set(cursorKey, board.response.seq);
       return output(render(value, { ...board, maxTotal: 1499 }));
     }
+    const boardStarted = performance.now();
     const boardView = await client.board();
     if (boardView.offline) throw new Error("Relay offline");
     const boardResponse = boardView.response;
     const board = boardResponse.result as CoordinationBoard;
     const warnings: unknown[] = [];
+    for (const env of deployEnvs) {
+      if (!board.leases.some(l => l.holder === record.session_id && l.state === "held" &&
+          l.resources.includes("env:" + env) && l.expires_in_s !== undefined &&
+          l.expires_in_s - Math.max(2, l.expires_in_s * 0.1) > (performance.now() - boardStarted) / 1000))
+        return output(undefined, "deny", render({ reason: "Deploy requires an unexpired held lease; run xt claim env:" + env }));
+    }
+    const reservations = await reservationConflicts(client, paths.filter(p => !existsSync(resolve(w.config.repoDir, p))));
+    if (reservations.length) return output(undefined, "deny", render(reservations));
     for (const a of actions) {
       if (!a.dir) throw new Error("Unknown gate source");
       // Gates are checked against this workspace's relay only; another repository fails closed.
@@ -139,12 +155,35 @@ async function runHookInner(harness: string, event: string, stdin: string, start
         const head = git("rev-parse", "--verify", "--end-of-options", ref + "^{commit}");
         if (prHead && prHead !== head) throw new Error("Local PR source is stale");
         const symbolic = git("rev-parse", "--symbolic-full-name", "--verify", "--end-of-options", ref);
-        const branches = /^refs\/(heads|remotes)\//.test(symbolic) ? [symbolic.replace(/^refs\/(heads|remotes\/[^/]+)\//, "")] : git("for-each-ref", "--format=%(refname:short)", "--points-at=" + head, "refs/heads/").split("\n").filter(Boolean);
-        for (const branch of branches.length ? branches : [undefined]) {
+        const branches = /^refs\/(heads|remotes)\//.test(symbolic) ? [symbolic.replace(/^refs\/(heads|remotes\/[^/]+)\//, "")] : [];
+        const sources: { branch: string; head: string }[] = branches.map(branch => ({ branch, head }));
+        if (!branches.length) {
+          const current = git("rev-parse", "HEAD");
+          const reachable = (a: string, b: string) => {
+            signal.throwIfAborted();
+            if (Date.now() >= deadline) throw new Error("Gate deadline exceeded");
+            return ancestor(refDir, a, b, Math.max(1, deadline - Date.now()));
+          };
+          const refDir = a.dir;
+          const cherryPick = a.words.includes("cherry-pick");
+          for (const status of board.coordination.branches) {
+            if (!["wip", "draft"].includes(status.state)) continue;
+            const candidates = new Set([status.head]);
+            for (const prefix of ["refs/heads/", "refs/remotes/origin/"]) {
+              try { candidates.add(git("rev-parse", "--verify", "--end-of-options", prefix + status.branch + "^{commit}")); } catch { /* Missing tip. */ }
+            }
+            for (const candidate of candidates) {
+              if (!candidate || reachable(head, current)) continue;
+              const reaches = cherryPick ? reachable(head, candidate) : reachable(candidate, head) && !reachable(candidate, current);
+              if (reaches) sources.push({ branch: status.branch, head: candidate });
+            }
+          }
+        }
+        for (const { branch, head: sourceHead } of sources) {
           if (a.kind === "branch" && branch && !board.coordination.branches.some(b => b.branch === branch && ["wip", "draft"].includes(b.state))) continue;
           signal.throwIfAborted();
           if (Date.now() >= deadline) throw new Error("Gate deadline exceeded");
-          const result = await client.check({ kind: "merge", source_branch: branch, source_head: head, target_branch: target, ...(!branch ? { unknown_source: true } : {}) });
+          const result = await client.check({ kind: "merge", source_branch: branch, source_head: sourceHead, target_branch: target });
           if (a.kind === "branch" && result.result.verdict !== "pass") {
             warnings.push({ branch, ...result.result, verdict: "warn" });
             continue;
@@ -153,6 +192,10 @@ async function runHookInner(harness: string, event: string, stdin: string, start
           if (result.result.verdict === "warn") warnings.push(result.result);
         }
       }
+    }
+    if (gate) {
+      signal.throwIfAborted();
+      if (Date.now() >= deadline) throw new Error("Gate deadline exceeded");
     }
     const conflicts = editConflicts(board, paths, record.session_id);
     if (conflicts.length) {

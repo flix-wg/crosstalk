@@ -75,10 +75,14 @@ export const branchSet: Handler = c => {
   const { tx, actor, who, cmd } = c;
   if (cmd.op !== "branch.set") return fail(tx, actor.space, "invalid_request", "Wrong operation");
   const old = readBody<BranchStatus>(tx, "SELECT body FROM branch_status WHERE space=? AND branch=?", actor.space, cmd.args.branch);
-  if (old && old.owner !== who.principal && !isAdmin(who)) return fail(tx, actor.space, "not_authorized", "Branch owner or admin required");
+  const policy = readBody<Policy>(tx, "SELECT body FROM policies WHERE space=?", actor.space);
+  const reusable = old && (!tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, old.owner) ||
+    (old.state === "ready" && policy?.protected_branches?.some(ref => tx.get("SELECT 1 FROM reachability WHERE space=? AND ref=? AND sha=?", actor.space, refName(ref), old.head))));
+  if (old && old.owner !== who.principal && !isAdmin(who) && !reusable)
+    return fail(tx, actor.space, "not_authorized", "Branch belongs to " + old.owner + "; ask them or an admin to transfer ownership");
   if (cmd.expect_rev !== undefined && cmd.expect_rev !== old?.rev) return fail(tx, actor.space, "stale_revision", "Branch revision changed");
   if (cmd.args.owner && (!old && cmd.args.owner !== who.principal)) return fail(tx, actor.space, "not_authorized", "First setter owns the branch");
-  const owner = cmd.args.owner ?? old?.owner ?? who.principal;
+  const owner = cmd.args.owner ?? (reusable ? who.principal : old?.owner) ?? who.principal;
   if (!tx.get("SELECT 1 FROM principals WHERE space=? AND principal=? AND revoked=0", actor.space, owner)) return fail(tx, actor.space, "not_found", "Active owner not found");
   const body: BranchStatus = { ...cmd.args, type: "branch_status", owner, rev: (old?.rev ?? 0) + 1 };
   tx.run("INSERT INTO branch_status VALUES (?, ?, ?) ON CONFLICT(space, branch) DO UPDATE SET body=excluded.body", actor.space, body.branch, JSON.stringify(body));

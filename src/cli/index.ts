@@ -9,6 +9,7 @@ import { ClientError, Workspace, RelayClient, loadConfig, loadHumanKey, credenti
 import { validateCommand } from "../schema/index.js";
 import type { CommandArgs } from "../schema/index.js";
 import { usage } from "./help.js";
+import { mergeGate } from "./gate.js";
 import { Args } from "./args.js";
 import { requireHumanTTY, readTerminal } from "./tty.js";
 import { initialize, enroll, invite } from "../client/index.js";
@@ -19,6 +20,7 @@ export interface CommandContext { args: Args; cwd: string; out(text: string): vo
 export type CommandHandler = (context: CommandContext) => Promise<number>;
 export const commands = new Map<string, CommandHandler>();
 export function registerCommand(name: string, handler: CommandHandler): void { commands.set(name, handler); }
+registerCommand("gate", mergeGate);
 const child = (bin: string, args: string[], cwd: string): Promise<number> => new Promise(resolve => {
   const proc = spawn(bin, bin === process.execPath ? ["--import", fileURLToPath(new URL("./warnings.js", import.meta.url)), ...args] : args, { cwd, stdio: "inherit" });
   const interrupt = () => { proc.kill("SIGINT"); }, terminate = () => { proc.kill("SIGTERM"); };
@@ -160,6 +162,7 @@ export async function runCLI(argv: string[], options: CLIOptions = {}): Promise<
     const error = e instanceof ClientError ? e : new ClientError("error", "Command failed; check configuration and arguments");
     if (rest.includes("--json")) out(JSON.stringify({ error: { code: error.code, message: error.message, details: error.details } }));
     else err(render({ code: error.code, message: error.message }, { hooks: false, peer: false }) + (error.details ? "\n" + render(error.details, { hooks: false }) : ""));
+    if (name === "gate") return error.code === "usage" ? 2 : 1;
     return ["unknown", "queued"].includes(error.code) ? 4 : ["conflict", "stale_revision", "blocked", "frozen"].includes(error.code) ? 3 : 1;
   }
 }

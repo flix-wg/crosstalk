@@ -44,7 +44,10 @@ test("bare remote enforces draft overrides, exact approval heads, non-FF and out
   git("switch", "-c", "topic"); const draft = commit("draft");
   await session.client.send("branch.set", { branch: "topic", head: draft, state: "draft", pending: ["API review"] });
   expect((await push("topic")).code).toBe(0);
-  git("switch", "main"); git("merge", "--no-ff", "topic", "-m", "merge draft"); const merged = git("rev-parse", "HEAD");
+  git("switch", "-c", "bridge", initial); git("merge", "--no-ff", "topic", "-m", "merge draft into intermediate branch");
+  await session.client.send("branch.set", { branch: "bridge", head: git("rev-parse", "HEAD"), state: "ready" });
+  expect((await push("bridge")).code).toBe(0);
+  git("switch", "main"); git("merge", "--no-ff", "bridge", "-m", "merge intermediate"); const merged = git("rev-parse", "HEAD");
   const denied = await push("main"); expect(denied.code).not.toBe(0); expect(denied.output).toContain("draft"); expect(denied.output).toContain("human∶test"); expect(denied.output).toContain("API review");
   await human.send("override.record", { scope: ["merge:branch:topic"], bound_head: draft, reason: "reviewed" });
   const allowed = await push("main"); expect(allowed.code, allowed.output).toBe(0);

@@ -8,7 +8,7 @@ export function sanitize(text: string, max = 140, preserveUrls = false): string 
     .replace(/(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\x1b[@-_]/g, "")
     .replace(/\r\n|[\r\n\u2028\u2029]/g, " ⏎ ")
-    .replace(/[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
+    .replace(/[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufe00-\ufe0f\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, "")
     .normalize("NFC")
     .replace(/(?:[a-z][a-z0-9+.-]{0,31}:\/\/|\/\/|www\.)[^\s<>«»()]+/gi, raw => {
       if (preserveUrls) return raw;

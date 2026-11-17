@@ -3,7 +3,7 @@ import { overlaps } from "../schema/index.js";
 import type { BranchStatus } from "../schema/index.js";
 export interface CoordinationBoard {
   presence?: { session: string; principal: string; tool?: string }[];
-  leases: { lease_id: string; holder: string; resources: string[]; state: string; expires_at: string }[];
+  leases: { lease_id: string; holder: string; resources: string[]; state: string; expires_at: string; expires_in_s?: number }[];
   coordination: { branches: BranchStatus[]; policy?: { protected_branches?: string[] } };
 }
 export function editConflicts(board: CoordinationBoard, paths: string[], session?: string) {

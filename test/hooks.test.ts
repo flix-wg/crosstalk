@@ -40,6 +40,11 @@ test("ported parser tracks quoted chains, heredocs, wrappers and uncertain direc
   expect(classifyShell("git switch -c new topic; xt executor promote prod", "/repo").map(a => a.kind)).toEqual(["branch", "deploy"]);
   expect(classifyShell("git merge --no-ff --ff --ff-only --squash --no-edit --no-verify -m 'merge message' --message msg -q --stat --no-stat -s ort -X ours topic", "/repo")[0]).toMatchObject({ dir: "/repo", refs: ["topic"] });
   expect(classifyShell("git worktree add -b new ../new topic", "/repo")[0]).toMatchObject({ kind: "branch", refs: ["topic"] });
+  for (const op of ["merge", "rebase", "cherry-pick", "revert"])
+    for (const flag of ["--abort", "--continue", "--skip", "--quit"]) expect(classifyShell("git " + op + " " + flag, "/repo")).toEqual([]);
+  expect(classifyShell("git rebase --edit-todo", "/repo")).toEqual([]);
+  for (const flag of ["--rebase", "-r", "--ff-only", "--no-rebase"])
+    expect(classifyShell("git pull " + flag, "/repo")[0]).toMatchObject({ kind: "merge", dir: "/repo", refs: [] });
   expect(classifyShell("git merge --mystery topic", "/repo")[0]).toMatchObject({ dir: null, unknownOption: "--mystery" });
   expect(classifyShell("git merge --ff-only topic 2>&1 | tail -2; git merge topic > log 2>/dev/null", "/repo").map(a => a.refs)).toEqual([["topic"], ["topic"]]);
   expect(classifyShell('git merge origin/main -m "Merge origin/main into topic\n\nbody" 2>&1 | tail -5', "/repo").map(a => a.refs)).toEqual([["origin/main"]]);
@@ -142,4 +147,68 @@ test("installers preserve other settings and are repeatable", () => {
   expect(config.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
   const codexInstall = installHarness(root, "codex");
   expect(codexInstall).toContain("Each new git worktree"); expect(codexInstall).toContain("/hooks"); expect(readFileSync(join(root, ".codex/config.toml"), "utf8")).toContain('CROSSTALK_HARNESS = "codex"');
+});
+
+async function enforcementFixture() {
+  const root = mkdtempSync(join(tmpdir(), "xt-enforce-")), repo = join(root, "repo"), home = join(root, "home");
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(repo); mkdirSync(join(home, ".config/crosstalk"), { recursive: true }); vi.stubEnv("HOME", home);
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  git("init", "-b", "main"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.org"); git("commit", "--allow-empty", "-m", "base");
+  const space = randomUUID(), humanKey = "h".repeat(40), agentKey = "a".repeat(40), execKey = "e".repeat(40);
+  const relay = await startRelay({ database: join(root, "db"), signingKeyFile: join(root, "key"), rateLimit: { burst: 1000, perSecond: 1000 }, bootstrap: { space, principal: "human:test", humanKey, agentKey } }); cleanup.push(relay.close);
+  const pin = "sha256:" + createHash("sha256").update(createPublicKey(readFileSync(join(root, "key"))).export({ type: "spki", format: "der" })).digest("hex");
+  writeFileSync(join(repo, ".crosstalk.toml"), `space="${space}"\nrelay="${relay.url}"\nrelay_key="${pin}"\nstrict=true\n[deploy_commands]\nprod=['^\\s*deploy-prod(?:\\s|$)']\n[sequences.db]\nfloor_glob="migrations/*.sql"\nfloor_regex='^(\\d+)_'`);
+  const config = trust(repo);
+  writeFileSync(join(home, ".config/crosstalk/credentials.json"), JSON.stringify({ [credentialScope(config)]: agentKey }), { mode: 0o600 });
+  const human = new RelayClient(config, { token: humanKey });
+  const w = new Workspace(repo); cleanup.push(() => w.close());
+  const own = await w.session("claude-code", "enforcement", Date.now(), "claude-code");
+  const action = async (tool_name: string, tool_input: unknown) => JSON.parse((await runHook("claude-code", "PreToolUse", JSON.stringify({ cwd: repo, session_id: "enforcement", tool_name, tool_input }))).stdout).hookSpecificOutput;
+  return { repo, git, space, relay, execKey, config, human, own, action };
+}
+test("new sequence files require a live reservation of this principal in edits and pre-commit", { timeout: 30000 }, async () => {
+  const { repo, git, relay, own, action } = await enforcementFixture();
+  const path = "migrations/001_new.sql";
+  expect((await action("Write", { file_path: path })).permissionDecision).toBe("deny");
+  await own.client.send("reserve", { sequence: "seq:db", floor: 1 });
+  expect((await action("Write", { file_path: path }))?.permissionDecision).toBeUndefined();
+  mkdirSync(join(repo, "migrations")); writeFileSync(join(repo, path), "select 1;"); git("add", path);
+  const { runPreCommit } = await import("../src/githooks/index.js");
+  expect((await runPreCommit(repo)).exitCode).toBe(0);
+  await own.client.send("reserve", { sequence: "seq:db", abandon: 1 });
+  expect((await runPreCommit(repo)).exitCode).toBe(1);
+
+  await relay.close();
+  expect((await action("Write", { file_path: "migrations/002_new.sql" }))?.permissionDecision).toBeUndefined();
+});
+test("configured deploy segments require an installed session lease and fail closed offline", { timeout: 30000 }, async () => {
+  const { space, relay, execKey, config, human, own, action } = await enforcementFixture();
+  const deploy = () => action("Bash", { command: "echo prepare && deploy-prod" });
+  expect((await deploy()).permissionDecisionReason).toContain("xt claim env:prod");
+  const code = "invite".repeat(10);
+  await human.request("/invitations", { request_id: randomUUID(), principal: "ci:executor", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
+  expect((await fetch(relay.url + "/v1/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: execKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
+  await human.send("executor.enroll", { env: "prod", executor: "ci:executor", max_fence: 0 });
+  const lease = await own.client.send("lease.claim", { resources: ["env:prod"] });
+  expect((await deploy()).permissionDecision).toBe("deny");
+  const executor = new RelayClient(config, { token: execKey });
+  const { lease_id, fence } = lease.result as { lease_id: string; fence: number };
+  await executor.request("/executor/install", { epoch: lease.epoch, env: "prod", lease_id, fence, max_fence: 0, dry_run: false });
+  expect((await deploy())?.permissionDecision).toBeUndefined();
+
+  await relay.close();
+  expect((await deploy()).permissionDecision).toBe("deny");
+});
+test("commit-ish shell inputs block only draft content newly introduced to HEAD", { timeout: 30000 }, async () => {
+  const { git, own, action } = await enforcementFixture();
+  const base = git("rev-parse", "HEAD");
+  git("switch", "-c", "draft"); git("commit", "--allow-empty", "-m", "draft"); const draft = git("rev-parse", "HEAD");
+  await own.client.send("branch.set", { branch: "draft", head: draft, state: "draft" });
+  git("commit", "--allow-empty", "-m", "tip"); const tip = git("rev-parse", "HEAD");
+  git("switch", "main"); git("switch", "-c", "clean"); git("commit", "--allow-empty", "-m", "clean"); const clean = git("rev-parse", "HEAD"); git("switch", "main");
+  for (const [command, denied] of [
+    ["git merge " + draft, true], ["git rebase " + tip, true], ["git cherry-pick " + draft, true],
+    ["git merge " + clean, false], ["git rebase " + clean, false], ["git cherry-pick " + base, false],
+  ] as const) expect((await action("Bash", { command }))?.permissionDecision === "deny", command).toBe(denied);
 });

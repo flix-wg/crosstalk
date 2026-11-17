@@ -6,3 +6,4 @@ coverage/
 *.db-shm
 .tmp/
 site/
+test-results/

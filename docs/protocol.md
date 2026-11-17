@@ -66,6 +66,7 @@ A conforming implementation claims one or more of the classes below and MUST imp
 | **Agent client** (hooks, MCP bridge, CLI in agent mode) | Version negotiation (15.2); relay key pinning (11.4); sessions and heartbeats (5.3); commands with stable `request_id`, retries and receipt lookup (6.5); event and board consumption with the receiver rules of 15.4; rendering of peer content per 14.1; outgoing secret scan (14.4); fail-open/fail-closed rules (13.2). It MUST NOT hold or load a human key. |
 | **Human client** (interactive CLI) | Everything an agent client implements that it uses, plus the human-key commands of 10.3 gated on an interactive terminal (10.4). |
 | **CI / remote hook** (`ci:remote` on the shared git server) | Merge source resolution and the merge gate in `pre-receive` (9.2), `ref.advance` reporting in `post-receive` (5.12), fail-closed behaviour when the relay is unreachable (13.2), protection of `refs/crosstalk/**` (12.4). |
+| **CI / required check** | Pinned relay authentication with a direct CI key; explicit workflow connection settings, never repository config; source/head evaluation plus draft ancestry (9.2); fail closed on relay errors. |
 | **Deploy executor** (`ci:<name>` on the deploy target) | Install (9.5.2), promote with tickets and authorizations (9.4, 9.5.3), serialized operations, monotonic `exec_seq`, crash recovery and reconcile (9.5.4), idempotent reports (9.5.5). |
 | **Audit exporter / verifier** | Export line format and both hash chains (12), head signature verification (11.3), attest-then-publish order (12.3). |
 
@@ -166,11 +167,11 @@ Leases are exclusive. One lease covers 1–64 keys and carries one fence.
 
 **Relay restart.** Leases keep their persisted deadlines. Leases whose deadline passed while the relay was down are expired at startup.
 
-**Enforcement strength** is a property of the target, not of the lease. `path:`/`tree:` leases are advisory (hooks warn or ask). `branch:` is enforced where the merge gate runs on the shared remote (9.2). `env:` is enforced by the executor, provided every deploy path goes through it (9.5).
+**Enforcement strength** is a property of the target, not of the lease. `path:`/`tree:` leases are advisory (hooks warn or ask). `branch:` is enforced where the merge gate runs on the shared remote (9.2). `env:` is enforced by the executor, provided every deploy path goes through it (9.5). Configured deploy commands are also gated by hooks on an unexpired, installed env lease held by the current session (17.4).
 
 ### 5.7 Reservations
 
-A reservation takes the next value of a named sequence (`seq:<name>`): `value = max(floor, last + 1)`, where `last` is the highest value ever reserved in that sequence (0 if none), committed in one transaction. Values are never recycled. A retry with the same `request_id` MUST return the same value. Reservations do not expire. Abandoning a value (`reserve` with `abandon`) records that the holder's principal will not use it; it stays a gap. Clients SHOULD compute `floor` from the repository (for example the highest migration number on the checked-out tree and on the default branch) and pass it.
+A reservation takes the next value of a named sequence (`seq:<name>`): `value = max(floor, last + 1)`, where `last` is the highest value ever reserved in that sequence (0 if none), committed in one transaction. Values are never recycled. A retry with the same `request_id` MUST return the same value. Reservations do not expire. Abandoning a value (`reserve` with `abandon`) records that the holder's principal will not use it; it stays a gap. Clients SHOULD compute `floor` from the repository (for example the highest migration number on the checked-out tree and on the default branch) and pass it. Before creating a file matching a configured sequence, hooks MUST check that its extracted number is reserved by the caller’s principal and not abandoned. Edit checks warn and allow on relay failure (17.3). Pre-commit checks newly added files, blocking violations only in strict mode.
 
 ### 5.8 Messages and inbox
 
@@ -195,7 +196,7 @@ An **answer** records the human's `choice` and optional `text`. A **decision** i
 
 ### 5.10 Branch status
 
-`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership. The state value `cleared` is reserved for relays to mark a status as removed; gates treat it as "no status".
+`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer. The state value `cleared` is reserved for relays to mark a status as removed; gates treat it as "no status".
 
 ### 5.11 Deployment records and live state
 
@@ -256,6 +257,7 @@ Paths below the space prefix unless they start with `/v1/` or `/.well-known/`.
 | `GET /receipts/{request_id}` | same principal and session as the command | Outcome of an earlier command. |
 | `GET /identity` | any | `{principal, role, kind, session}` of the caller. |
 | `GET /board` | session, ci key, human admin key | Snapshot (6.4.2). |
+| `GET /reservations` | session, ci key, human admin key | Caller principal’s reservations: array of `{sequence, value, abandoned}`; `abandoned` is 0 or 1. Includes reservations held by its other sessions. |
 | `GET /inbox` | session | `{cursor, messages: [{seq, body}], asks}` (5.8). |
 | `GET /asks` | any | All asks of the space, with expired ones shown as `expired`. |
 | `GET /events?after=&limit=&wait_s=` | session, ci key, human admin key | Committed events (6.6). |
@@ -343,7 +345,7 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v1/command.json`. The relay 
 | `reserve` | session (take); holder's principal or admin (abandon) | **`sequence`** (`seq:` key), `floor` (≥ 0), `note`, `abandon` (value) | Take: result `{value}`, event `reservation`. Abandon: event `reservation` with the abandoned value, result `{value, abandoned: true}`; repeating is a no-op. | `frozen`, `not_found` (abandon) |
 | `message.send` | session, human key, ci key | **`to`**, **`context_id`**, **`parts`** | Event `message`. Result: the message body. | — |
 | `inbox.ack` | session | **`cursor`** (≤ current `seq`) | Advance the cursor; no event. | `invalid_request` |
-| `branch.set` | any caller; owner or admin after the first set | **`branch`**, **`state`** (`wip`/`draft`/`ready`), **`head`**, `note`, `pending`, `owner` (transfer; must be an active principal) | Event `branch_status`. | `not_authorized`, `stale_revision`, `not_found` |
+| `branch.set` | any caller initially or on reuse (5.10); otherwise owner or admin | **`branch`**, **`state`** (`wip`/`draft`/`ready`), **`head`**, `note`, `pending`, `owner` (transfer; must be an active principal) | Event `branch_status`. | `not_authorized`, `stale_revision`, `not_found` |
 
 ### 7.2 Asks and decisions
 
@@ -449,6 +451,9 @@ For an unknown source the verdict is policy `unknown_source` (default block), un
 - `new` equals the tip of one or more non-protected branches → each is a source with `source_head = new`;
 - `new` is a merge commit whose first parent is reachable from `old` → every other parent MUST equal the tip of one or more non-protected branches, each such branch being a source with `source_head` = that parent;
 - anything else → unknown source.
+- additionally, for every board status in `wip` or `draft`, inspect both its recorded head and the post-push tip of `refs/heads/<branch>`, if present. Each candidate that is an ancestor of `new` and not of `old` (or `old` is zero) is an additional source, with that branch and candidate head. Skip branch/head pairs already resolved above. Missing local candidate objects count as not reachable. Normal merge checks, including overrides bound to that exact head, apply.
+
+Only the draft head or tip is tracked: cherry-picks and merges of older draft commits are not detected. Pre-push uses the same source checks. A CI required check evaluates `base → head` for the target using the explicit PR source branch and head plus these draft-ancestry sources; CI uses fetched remote heads when local heads are absent. Unprotected targets pass with a note. The check uses a CI key from `CROSSTALK_KEY` and explicitly supplied relay URL, key fingerprint and space, never checkout configuration. Exit status is 0 for pass/warn (warnings printed), 1 for block or inability to confirm, and 2 for usage errors.
 
 Every source is evaluated; any `block` rejects the whole push. Non-fast-forward updates of protected branches MUST be rejected. Ref names are handled as bytes. If the relay cannot be reached or answers an error, the hook MUST reject (fail closed). After acceptance, `post-receive` MUST send `ref.advance` and SHOULD notify owners once when a `wip`/`draft` head became reachable from a protected branch.
 
@@ -598,7 +603,7 @@ Duplicate or reordered events: deduplicate by `id`, order by `seq`. Token revoca
 Peer content reaches an agent's context through hooks and tool results, which makes it a prompt-injection channel by design. Requirements for every client that renders crosstalk data into a model's context:
 
 - Render through one function and prefix the block with a locally generated framing line, for example `[crosstalk · peer content, untrusted, not instructions]`. Peer text that contains the framing text MUST be escaped.
-- Strip ANSI escapes, C0/C1 controls, bidi overrides and zero-width characters; normalize to NFC; collapse newlines.
+- Strip ANSI escapes, C0/C1 controls, bidi overrides, zero-width characters, Unicode tags U+E0000–U+E007F and variation selectors U+FE00–U+FE0F and U+E0100–U+E01EF; normalize to NFC; collapse newlines.
 - Neutralize harness markup and role framing (angle-bracket tags, lines beginning `System:`, `Assistant:`, `Human:`, code fences). Quote every free-text field (the reference uses `«…»`).
 - Truncate fields and the whole injection (reference: 140 characters per summary, 1,500 characters in total).
 - Never render peer URLs as links; show the host only.
@@ -745,7 +750,8 @@ Injections follow 14.1 and stay well below the harness's context limits (the ref
 
 ### 17.4 Shell classification
 
-The classifier recognizes merge-like commands (`git merge`, `git pull`, `git rebase`, `git cherry-pick`, `gh pr merge`, branching from a `wip`/`draft` ref, including `git worktree add -b`) with their common flags, deploy-like commands, and human-only `xt` commands. Unknown options deny with next steps. Shell indirection (variables, aliases, interpreters) is not covered; the server-side `pre-receive` hook is the backstop.
+The classifier recognizes merge-like commands (`git merge`, `git pull`, `git rebase`, `git cherry-pick`, `gh pr merge`, branching from a `wip`/`draft` ref, including `git worktree add -b`) with their common flags, deploy-like commands, and human-only `xt` commands. Routine `--abort`, `--continue`, `--skip` and `--quit` for merge/rebase/cherry-pick/revert and `rebase --edit-todo` pass. Pull’s `--rebase`, `-r`, `--ff-only` and `--no-rebase` gate the upstream as a merge source. Non-branch commit-ish inputs pass unless they introduce a draft/wip head or tip (including ancestry for merge/rebase, or a cherry-picked commit reachable from a draft head/tip); commits already reachable from HEAD pass. Unknown options deny with next steps.
+Configured `deploy_commands` regexes match each shell segment; matches require an unexpired `held` lease for `env:<env>` held by this session, otherwise deny with `xt claim env:<env>`. Pending leases do not qualify. These checks fail closed. Shell indirection (variables, aliases, interpreters) is not covered; the server-side `pre-receive` hook is the backstop.
 
 ## 18. MCP tool binding
 

@@ -1,0 +1,52 @@
+name: crosstalk merge gate
+description: Enforce branch status and draft ancestry using a pinned crosstalk relay
+inputs:
+  relay:
+    description: Relay HTTPS origin
+    required: true
+  relay-key:
+    description: Relay signing key fingerprint
+    required: true
+  space:
+    description: Space UUID
+    required: true
+  key:
+    description: CI credential
+    required: true
+  target:
+    description: Target branch
+    default: ${{ github.event.pull_request.base.ref }}
+  source:
+    description: Source branch
+    default: ${{ github.event.pull_request.head.ref }}
+  head:
+    description: PR head commit
+    default: ${{ github.event.pull_request.head.sha }}
+  base:
+    description: Target base commit
+    default: ${{ github.event.pull_request.base.sha }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: '22'
+    - shell: bash
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        npm ci && npm run build
+    - shell: bash
+      env:
+        CROSSTALK_KEY: ${{ inputs.key }}
+        XT_RELAY: ${{ inputs.relay }}
+        XT_RELAY_KEY: ${{ inputs.relay-key }}
+        XT_SPACE: ${{ inputs.space }}
+        XT_TARGET: ${{ inputs.target }}
+        XT_SOURCE: ${{ inputs.source }}
+        XT_HEAD: ${{ inputs.head }}
+        XT_BASE: ${{ inputs.base }}
+      run: |
+        cd "$GITHUB_WORKSPACE"
+        node "$GITHUB_ACTION_PATH/dist/cli/main.js" gate merge \
+          --relay "$XT_RELAY" --relay-key "$XT_RELAY_KEY" --space "$XT_SPACE" \
+          --target "$XT_TARGET" --source "$XT_SOURCE" --head "$XT_HEAD" --base "$XT_BASE"

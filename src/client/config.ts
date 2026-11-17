@@ -8,7 +8,7 @@ export class ClientError extends Error {
   constructor(readonly code: string, message: string, readonly details?: unknown) { super(message); this.name = "ClientError"; }
 }
 export interface SequenceConfig { floor_glob: string; floor_regex: string; restore_gap?: number }
-export interface ConfigValues { space: string; relay: string; relay_key: string; sequences: Record<string, SequenceConfig>; edit_conflict?: "warn" | "ask"; strict?: boolean; auto_claim?: boolean; audit_hook?: string }
+export interface ConfigValues { space: string; relay: string; relay_key: string; sequences: Record<string, SequenceConfig>; edit_conflict?: "warn" | "ask"; strict?: boolean; auto_claim?: boolean; audit_hook?: string; deploy_commands?: Record<string, string[]> }
 function git(repo: string, ...args: string[]) {
   try { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { throw new ClientError("not_repository", "Not inside a git repository: " + repo); }
 }
@@ -26,6 +26,17 @@ function values(repo: string): ConfigValues {
   if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) ||
     url.username || url.password || url.search || url.hash || url.pathname !== "/")
     throw new ClientError("invalid_config", "Relay must be an HTTPS origin (HTTP only on loopback)");
+  const deploy_commands = raw.deploy_commands;
+  if (deploy_commands !== undefined) {
+    if (!deploy_commands || typeof deploy_commands !== "object" || Array.isArray(deploy_commands))
+      throw new ClientError("invalid_config", "deploy_commands must map environments to regex lists");
+    for (const [env, patterns] of Object.entries(deploy_commands)) {
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(env) || !Array.isArray(patterns) || !patterns.every(p => typeof p === "string"))
+        throw new ClientError("invalid_config", "Invalid deploy_commands entry");
+      try { for (const pattern of patterns) new RegExp(pattern); }
+      catch { throw new ClientError("invalid_config", "Invalid deploy command regex"); }
+    }
+  }
   const sequences = raw.sequences ?? {};
   if (!sequences || typeof sequences !== "object" || Array.isArray(sequences)) throw new ClientError("invalid_config", "Invalid sequences");
   for (const sequence of Object.values(sequences)) {
@@ -38,7 +49,7 @@ function values(repo: string): ConfigValues {
   if (raw.edit_conflict !== undefined && !["warn", "ask"].includes(String(raw.edit_conflict))) throw new ClientError("invalid_config", "edit_conflict must be warn or ask");
   for (const key of ["strict", "auto_claim"]) if (raw[key] !== undefined && typeof raw[key] !== "boolean") throw new ClientError("invalid_config", key + " must be boolean");
   if (raw.audit_hook !== undefined && typeof raw.audit_hook !== "string") throw new ClientError("invalid_config", "audit_hook must be a command string");
-  return { edit_conflict: raw.edit_conflict as "warn" | "ask" | undefined, strict: raw.strict as boolean | undefined, auto_claim: raw.auto_claim as boolean | undefined, audit_hook: raw.audit_hook as string | undefined, space, relay: url.origin, relay_key, sequences: sequences as Record<string, SequenceConfig> };
+  return { deploy_commands: deploy_commands as Record<string, string[]> | undefined, edit_conflict: raw.edit_conflict as "warn" | "ask" | undefined, strict: raw.strict as boolean | undefined, auto_claim: raw.auto_claim as boolean | undefined, audit_hook: raw.audit_hook as string | undefined, space, relay: url.origin, relay_key, sequences: sequences as Record<string, SequenceConfig> };
 }
 const pin = (v: ConfigValues) => JSON.stringify({ space: v.space, relay: v.relay, relay_key: v.relay_key, audit_hook: v.audit_hook });
 export interface LoadedConfig extends ConfigValues {
