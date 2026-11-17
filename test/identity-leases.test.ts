@@ -156,6 +156,8 @@ test("shared and exclusive claims report peers without blocking each other", () 
     expect(f.command(a, "lease.claim", { ...args, expect: { lease_id: shared.lease_id, rev: 2 } })).toMatchObject({ error: { code: "invalid_request" } });
     expect(f.command(a, "lease.claim", { resources: ["path:x"], ttl_s: 901 })).toMatchObject({ error: { code: "invalid_request" } });
     expect(f.command(a, "lease.claim", { resources: ["env:prod"] })).toMatchObject({ result: { state: "held" } });
+    f.store.tx(tx => tx.run("UPDATE leases SET state='pending' WHERE resources=?", JSON.stringify(["env:prod"])));
+    expect(f.command(a, "lease.claim", { resources: ["env:prod"] })).toMatchObject({ result: { state: "held", rev: 2 } });
   } finally { f.store.close(); }
 });
 

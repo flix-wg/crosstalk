@@ -71,7 +71,7 @@ export const commandArgsSchemas = {
   "principal.revoke": object({ principal, reason: note, device: { type: "string", minLength: 1, maxLength: 80 } }, ["principal"]),
   "space.unfreeze": object({ reason: note }, []),
   "policy.set": object({
-    sequences: { type: "object", additionalProperties: { type: "string", pattern: "^[^()]*\\(\\\\d\\+\\)[^()]*$" } },
+    sequences: { type: "object", propertyNames: { pattern: "^[a-z0-9][a-z0-9_-]*$" }, additionalProperties: { type: "string", pattern: "^[^()]*\\(\\\\d\\+\\)[^()]*$" } },
     protected_branches: { type: "array", items: text, uniqueItems: true },
     gates: object({ merge: object({
       unknown: verdict, unknown_source: verdict, stale_ready: verdict,

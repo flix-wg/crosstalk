@@ -73,7 +73,7 @@ export const eventSchema = {
     },
     "lease": {
       "type": "object", "additionalProperties": false,
-      "required": ["type", "lease_id", "mode", "op", "state", "resources", "holder", "fence", "rev", "expires_at"],
+      "required": ["type", "lease_id", "op", "state", "resources", "holder", "fence", "rev", "expires_at"],
       "properties": {
         "type": {"const": "lease"}, "mode": {"enum": ["exclusive", "shared"]}, "lease_id": {"type": "string", "format": "uuid"},
         "op": {"enum": ["acquire", "install", "release", "expire", "revoke"]},

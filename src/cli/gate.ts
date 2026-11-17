@@ -40,8 +40,22 @@ export async function mergeGate(c: CommandContext): Promise<number> {
       c.out("crosstalk: target is not protected; merge gate passes"); return 0;
     }
     for (const sha of [head, base]) git(c.cwd, "cat-file", "-e", sha + "^{commit}");
-    const duplicate = duplicateSequence(c.cwd, head, board.coordination.policy.sequences, source === undefined ? undefined : base);
-    if (duplicate) { c.out(render({ error: duplicate }, { hooks: false })); return 1; }
+    const sequences = board.coordination.policy.sequences;
+    if (sequences && Object.keys(sequences).length) {
+      let tree: string | undefined = head;
+      if (source !== undefined) {
+        try { tree = git(c.cwd, "merge-tree", "--write-tree", base, head); }
+        catch (error) {
+          if ((error as { status?: number }).status !== 1) throw error;
+          c.out("crosstalk: skipping sequence check because the proposed merge has conflicts");
+          tree = undefined;
+        }
+      }
+      if (tree) {
+        const duplicate = duplicateSequence(c.cwd, tree, sequences, base);
+        if (duplicate) { c.out(render({ error: duplicate }, { hooks: false })); return 1; }
+      }
+    }
     const refs = new Map<string, string>();
     // CI fetches remote heads; local heads take precedence where both exist.
     for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {

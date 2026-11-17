@@ -5,7 +5,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import {
   canonicalKey, commandArgsSchemas, eventHash, GENESIS_PREV_HASH,
-  InvalidResourceError, isLeasableKey, jcs, overlaps, PROTOCOL_VERSION, publishedSchemas, SCHEMA_BASE, sign, validateCommand, validateEvent, verify,
+  InvalidResourceError, isLeasableKey, jcs, overlaps, PROTOCOL_VERSION, publishedSchemas, SCHEMA_BASE, sign, validateCommand, validateEvent, validateEventTolerant, verify,
 } from "../src/schema/index.js";
 import type { Ask, CommandArgs, Event } from "../src/schema/index.js";
 
@@ -25,6 +25,12 @@ test("genesis validates and matches an independently computed hash regardless of
   expect(eventHash(GENESIS_PREV_HASH, Object.fromEntries(Object.entries(genesis).reverse()) as Event)).toBe(genesis.hash);
   expect(eventHash(GENESIS_PREV_HASH, { ...genesis, seq: 2 })).not.toBe(genesis.hash);
   expect(() => eventHash(digest, genesis)).toThrow();
+});
+
+test("historical lease and intent events validate for replay", () => {
+  const common = { rev: 1, resources: ["path:a"], expires_at: genesis.recorded_at };
+  expect(validateEventTolerant({ ...genesis, body: { ...common, type: "lease", lease_id: id, holder: id, op: "acquire", state: "held", fence: 1 } })).toBe(true);
+  expect(validateEventTolerant({ ...genesis, body: { ...common, type: "intent", intent_id: id, state: "active", summary: "Editing" } })).toBe(true);
 });
 
 test("published schemas compile together and match the protocol's schema index", () => {
@@ -179,6 +185,7 @@ test("every command op validates minimal inputs and rejects missing args or unkn
     expect(validateCommand({ request_id: id, op })).toBe(false);
     expect(validateCommand({ request_id: id, op, args: { ...args, bogus: true } })).toBe(false);
   }
+  expect(validateCommand({ request_id: id, op: "policy.set", args: { sequences: { "bad/name": "(\\d+)_*.sql" } } })).toBe(false);
   expect(validateCommand({ request_id: id, op: "unknown", args: {} })).toBe(false);
   expect(validateCommand({ request_id: "bad", op: "space.unfreeze", args: {} })).toBe(false);
 });

@@ -258,7 +258,12 @@ export class RelayClient {
     if (this.draining) return this.draining;
     this.draining = (async () => {
       for (const command of this.options.cache?.pending(this.outboxScope()) ?? []) {
-        await this.request("/commands", command, command.request_id);
+        try {
+          await this.request("/commands", command, command.request_id);
+        } catch (error) {
+          if (!(error instanceof ClientError) || !["invalid_request", "unsupported_op"].includes(error.code)) throw error;
+          console.warn("crosstalk: dropping invalid queued command (" + error.code + ")");
+        }
         this.options.cache!.delivered(command.request_id, this.outboxScope());
       }
     })();

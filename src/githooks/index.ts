@@ -47,7 +47,7 @@ export async function runPreReceive(input: string | Buffer | Update[], options: 
       }
       if (!u.ref.startsWith("refs/heads/") || !protectedBranches.has(name(u.ref))) continue;
       if (zero(u.new) || (!zero(u.old) && !ancestor(cwd, u.old, u.new))) return { exitCode: 1, stdout: render({ branch: name(u.ref), error: "Non-fast-forward protected branch update rejected" }, { hooks: false, peer: false }) };
-      const duplicate = duplicateSequence(cwd, u.new, board.coordination.policy.sequences);
+      const duplicate = duplicateSequence(cwd, u.new, board.coordination.policy.sequences, zero(u.old) ? undefined : u.old);
       if (duplicate) return { exitCode: 1, stdout: render({ error: duplicate }, { hooks: false }) };
       const sources = resolveSources(cwd, u, refs, protectedBranches);
       sources.push(...draftSources(cwd, u, refs, board.coordination.branches, sources));

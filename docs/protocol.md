@@ -135,7 +135,7 @@ See shared leases in 5.6.
 
 ### 5.6 Leases and fences
 
-One lease covers 1–64 keys. Every lease view and event carries its mode and fence. The default mode is `exclusive`. A `shared` claim announces work and requires a `note` of 1–280 characters. Shared claims always succeed after validation and never cause conflicts. They reject environment keys (`invalid_resource`) and takeover expectations (`invalid_request`). Only exclusive leases participate in conflict and steal checks and may appear in `supersedes`. Shared fences are allocated normally and need no enforcement.
+One lease covers 1–64 keys. Every lease view and newly written event carries its mode and fence. The default mode is `exclusive`. A `shared` claim announces work and requires a `note` of 1–280 characters. Shared claims always succeed after validation and never cause conflicts. They reject environment keys (`invalid_resource`) and takeover expectations (`invalid_request`). Only exclusive leases participate in conflict and steal checks and may appear in `supersedes`. Shared fences are allocated normally and need no enforcement.
 
 Every successful claim, including renewal, returns `overlaps`: up to 20 active, unexpired leases of other sessions overlapping the requested resources, in creation order. Each entry has `lease_id`, display-form `holder`, `mode`, `note`, and `resources`.
 
@@ -155,7 +155,7 @@ Every successful claim, including renewal, returns `overlaps`: up to 20 active, 
 |---|---|---|
 | **Acquire** | Caller is a session. For an exclusive claim, no active, unexpired exclusive lease overlaps any requested key. Checked in the same transaction as the grant. | New `lease_id`, `fence = ++fence_counter`, `rev = 1`, `expires_at = now + ttl`. State `held`, or `pending` for an environment with an enrolled executor. Event `lease`/`acquire`. |
 | **Conflict** | Both leases are exclusive. An overlapping lease is `pending` or `held` and unexpired, and the caller is not its holder with the same key set. | Nothing changes. Error `conflict` with details (6.7). |
-| **Renew** | Same session, same canonical key set and mode, lease unexpired by relay time. | Same fence and acquire-time note, `rev + 1`, new deadline. To change the note, release and claim again. A different mode creates a new lease. **No event.** |
+| **Renew** | Same session, same canonical key set and mode, lease unexpired by relay time. | Same fence and acquire-time note, `rev + 1`, new deadline. To change the note, release and claim again. A different mode creates a new lease. Renewal emits no event except when a pending environment lease has no enrolled executor, in which case it becomes `held` and emits `lease`/`install`. |
 | **Expire** | Relay time passes `expires_at`. | All checks treat the lease as expired immediately. The relay MUST write the `lease`/`expire` event within 5 s. Presence expiry alone never releases a lease. |
 | **Steal** | Every overlapping exclusive lease has expired. For an `env:` key the claim MUST carry `expect: {lease_id, rev}` of the expired lease; other keys MAY be claimed without `expect`, including a narrower set. | New lease with a greater fence; `supersedes` is the replaced lease id, or an array of ids when several are replaced. The old lease is never revived. A held lease cannot be stolen. |
 | **Release** | The holder session, or a human of the same principal using the human key; lease still active and unexpired. | `released`, `rev + 1`. Event `lease`/`release`. |
@@ -169,7 +169,7 @@ Every successful claim, including renewal, returns `overlaps`: up to 20 active, 
 
 **Relay restart.** Leases keep their persisted deadlines. Leases whose deadline passed while the relay was down are expired at startup.
 
-**Enforcement strength** is a property of the target, not of the lease. `path:`/`tree:` leases are advisory (hooks warn or ask). `branch:` is enforced where the merge gate runs on the shared remote (9.2). A companion MAY add environment fencing. Configured deploy commands are gated by hooks on an unexpired, held env lease held by the current session (17.4).
+**Enforcement strength** is a property of the target, not of the lease. `path:`/`tree:` leases are advisory (hooks warn or ask). `branch:` is enforced where the merge gate runs on the shared remote (9.2). A companion MAY add environment fencing. Configured deploy commands are gated by hooks on the current session having an unexpired env lease in the `held` state (17.4).
 
 ### 5.7 Reservations
 
@@ -320,7 +320,7 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v2/command.json`. The relay 
 
 | Op | Allowed for | Args (required **bold**) | Effect and events | Notable errors |
 |---|---|---|---|---|
-| `lease.claim` | session | **`resources`** (1–64 keys, no `seq:`, an `env:` key alone), `mode`, `ttl_s` (5.6), `note` (≤ 280), `expect` `{lease_id, rev}` | Acquire, renew or steal (5.6). Result: the lease view `{lease_id, holder, resources, mode, overlaps, state, fence, rev, note, supersedes, expires_at, expires_in_s}`. Event `lease`/`acquire` (none on renew). | `conflict`, `stale_revision`, `invalid_resource` |
+| `lease.claim` | session | **`resources`** (1–64 keys, no `seq:`, an `env:` key alone), `mode`, `ttl_s` (5.6), `note` (≤ 280), `expect` `{lease_id, rev}` | Acquire, renew or steal (5.6). Result: the lease view `{lease_id, holder, resources, mode, overlaps, state, fence, rev, note, supersedes, expires_at, expires_in_s}`. Event `lease`/`acquire` (install on promotion during renewal). | `conflict`, `stale_revision`, `invalid_resource` |
 | `lease.release` | holder session; same principal via human key | **`lease_id`** | Event `lease`/`release`. | `not_found`, `not_authorized`, `stale_revision` (not active) |
 | `session.release` | the session itself | **`session`** (own id) | Release all its leases (one `lease`/`release` event each), presence `offline`. | `not_authorized` |
 | `reserve` | session (take); holder's principal or admin (abandon) | **`sequence`** (`seq:` key), `floor` (≥ 0), `note`, `abandon` (value) | Take: result `{value}`, event `reservation`. Abandon: event `reservation` with the abandoned value, result `{value, abandoned: true}`; repeating is a no-op. | `frozen`, `not_found` (abandon) |
@@ -397,7 +397,10 @@ Interoperability test vectors for this chain are listed in Appendix C.
 | `deployment` | Deploy-executor companion: `deployment.record`, `env.adopt` |
 | `admin` (`action`) | `principal.invite` and bootstrap (`principal_enrolled`), `principal.revoke` (`principal_revoked`), `space.freeze`/`space.unfreeze` (`gates_frozen`/`gates_unfrozen`), withdrawal of a blocking ask (`requirement_withdrawn`), `override.record` (`override_recorded`), `policy.set` (`policy_set`), `ref.seed` (`ref_seeded`). A companion MAY define additional admin actions. |
 
-Not events: presence, heartbeats, lease renewals, inbox cursors, reachability from `ref.advance`.
+An absent `mode` in a historical lease event means `exclusive`.
+Historical `intent` bodies remain valid for replay, although relays no longer produce them.
+
+Not events: presence, heartbeats, ordinary lease renewals, inbox cursors, reachability from `ref.advance`.
 
 ## 9. Gates
 
@@ -413,7 +416,7 @@ Check input (schema: gate input, Appendix A): `{kind: "merge", source_branch, so
 
 ### 9.2 Merge gate
 
-When relay policy `sequences` is set, remote and CI gates MUST reject a proposed protected target tree containing two paths with the same number in one sequence and name both paths. Each named path glob has one decimal capture, e.g. `db/migrations/(\d+)_*.sql`. A star matches within one path component. Leading zeros do not distinguish numbers. For a named sequence, clients use its relay pattern for local reservation floors and creation checks when available.
+When relay policy `sequences` is set, remote and CI gates MUST reject a proposed protected target tree if a number is duplicated in one sequence and was not duplicated in that sequence in the old target tree, and name both paths. CI skips the sequence check when the proposed merge has conflicts. Sequence names match `^[a-z0-9][a-z0-9_-]*$`. Each named path glob has one decimal capture, e.g. `db/migrations/(\d+)_*.sql`. A star matches within one path component. Leading zeros do not distinguish numbers. For a named sequence, clients use its relay pattern for local reservation floors and creation checks when available.
 
 Rules per source, in order; the first `block` wins:
 
@@ -650,7 +653,7 @@ Anything that should become part of the protocol is proposed as a new minor vers
 - Removed ask cancellation, rejection/expiry states and expiry sweep, `reaffirm`, branch `cleared`, the unused `executor.reconcile` wire op, and A2A claims. Approval answers may repeat and rebind; the newest decision controls each requirement. Askers may withdraw only unblocking asks; deadlines are informational.
 - Moved deployment execution, audit export and backup restore to optional normative companions. The no-live-state deploy block applies only to environments with an enrolled executor.
 - Added portable canonical JSON, event hash, resource key, signature and merge-gate test vectors (Appendix C).
-- Remote hooks and GitHub required checks inspect draft ancestry; temporary queue refs are excluded. Only eligible topic branch names may be reclaimed after merge. Unknown sources check target requirements. Sequence policies reject duplicate numbers in the proposed tree. Expanded sanitizer Unicode ranges and shell classification; configured deploy commands require session-held env leases; sequence-file creation checks reservation ownership and abandonment.
+- Remote hooks and GitHub required checks inspect draft ancestry; temporary queue refs are excluded. Only eligible topic branch names may be reclaimed after merge. Unknown sources check target requirements. Sequence policies reject newly duplicated numbers in the proposed tree. Expanded sanitizer Unicode ranges and shell classification; configured deploy commands require session-held env leases; sequence-file creation checks reservation ownership and abandonment.
 
 ### 1.0 (2026-11-17)
 
@@ -663,6 +666,8 @@ First published version. Defines spaces, principals, sessions, resource keys wit
 This part is non-normative, except that the fail-closed rule in 17.3 is REQUIRED for any binding that enforces gates.
 
 ## 17. Generic hook events
+
+Upgrade the relay and client hooks together for this draft because older hooks treat shared leases as exclusive.
 
 ### 17.1 Events
 

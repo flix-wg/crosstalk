@@ -6,7 +6,7 @@ import { eventActor, identity, presenceDoing, isAdmin, isExecutor } from "./iden
 import type { CommandContext, Handler } from "./commands.js";
 
 export interface LeaseRow {
-  mode: Lease["mode"]; space: string; lease_id: string; holder: string; resources: string; state: Lease["state"];
+  mode: NonNullable<Lease["mode"]>; space: string; lease_id: string; holder: string; resources: string; state: Lease["state"];
   fence: number; rev: number; note: string | null; created_at: number; expires_at: number;
   supersedes: string | null; superseded_by: string | null;
 }
@@ -127,13 +127,15 @@ export const claim: Handler = c => {
   const live = mode === "shared" ? matches.find(row => row.mode === mode && row.holder === who.session && active(row) && sameKeys(row)) : rows.find(row => active(row) && row.expires_at > ctx.now());
   const expected = cmd.args.expect;
   const expires = ctx.now() + (cmd.args.ttl_s ?? (mode === "shared" ? 3600 : 300)) * 1000;
+  const hasExecutor = () => keys[0].startsWith("env:") && tx.get("SELECT 1 FROM executors WHERE space=? AND env=?", actor.space, keys[0].slice(4));
   if (live) {
     if (expected) return fail(tx, actor.space, "stale_revision", "Only expired leases can be stolen");
     if (live.holder !== who.session || !sameKeys(live)) return conflict(c, live, resources);
     if (cmd.expect_rev !== undefined && cmd.expect_rev !== live.rev) return fail(tx, actor.space, "stale_revision", "Lease revision changed");
-    const updated = { ...live, rev: live.rev + 1, expires_at: expires };
+    const updated = { ...live, state: live.state === "pending" && !hasExecutor() ? "held" as const : live.state, rev: live.rev + 1, expires_at: expires };
     tx.run("UPDATE sessions SET expires_at=? WHERE id=?", ctx.now() + 86400000, who.session);
-    tx.run("UPDATE leases SET rev=?, expires_at=? WHERE space=? AND lease_id=?", updated.rev, expires, actor.space, live.lease_id);
+    tx.run("UPDATE leases SET state=?, rev=?, expires_at=? WHERE space=? AND lease_id=?", updated.state, updated.rev, expires, actor.space, live.lease_id);
+    if (updated.state !== live.state) emit(tx, ctx, updated, "install", eventActor(who), cmd.request_id);
     return ok(tx, actor.space, { ...leaseView(updated, ctx.now()), overlaps: warnings });
   }
   const old = expected ? rows.find(r => r.lease_id === expected.lease_id) : undefined;
@@ -147,7 +149,7 @@ export const claim: Handler = c => {
   const fence = tx.get<{ value: number }>("SELECT value FROM fence_counters WHERE space=?", actor.space)!.value;
   const row: LeaseRow = {
     mode, space: actor.space, lease_id: ctx.uuid(), holder: who.session, resources: JSON.stringify(resources),
-    state: keys[0].startsWith("env:") && tx.get("SELECT 1 FROM executors WHERE space=? AND env=?", actor.space, keys[0].slice(4)) ? "pending" : "held", fence, rev: 1, note: cmd.args.note ?? null,
+    state: hasExecutor() ? "pending" : "held", fence, rev: 1, note: cmd.args.note ?? null,
     created_at: ctx.now(), expires_at: expires, supersedes: rows.length > 1 ? JSON.stringify(rows.map(r => r.lease_id)) : old?.lease_id ?? rows[0]?.lease_id ?? null, superseded_by: null,
   };
   tx.run("INSERT INTO leases VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",

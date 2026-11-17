@@ -273,7 +273,6 @@
       "required": [
         "type",
         "lease_id",
-        "mode",
         "op",
         "state",
         "resources",

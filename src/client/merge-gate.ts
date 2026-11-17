@@ -19,27 +19,37 @@ export function ancestor(cwd: string, a: string, b: string, timeoutMs = 10000): 
     return false;
   }
 }
-export function duplicateSequence(cwd: string, head: string, sequences?: Record<string, string>, base?: string): string | undefined {
+function duplicateNumbers(paths: string[], regex: RegExp): Map<string, string> {
+  const seen = new Map<string, string>();
+  const duplicates = new Map<string, string>();
+  for (const path of paths) {
+    const match = regex.exec(path);
+    if (!match) continue;
+    const number = match[1].replace(/^0+(?=\d)/, "");
+    const previous = seen.get(number);
+    if (previous === undefined) seen.set(number, path);
+    else if (!duplicates.has(number)) duplicates.set(number, previous + " and " + path);
+  }
+  return duplicates;
+}
+
+export function duplicateSequence(cwd: string, tree: string, sequences?: Record<string, string>, baseline?: string): string | undefined {
   if (!sequences || !Object.keys(sequences).length) return;
-  // A pull_request_target check receives the PR tip rather than the proposed merge tree.
-  const tree = base ? git(cwd, "merge-tree", "--write-tree", base, head) : head;
-  const paths = git(cwd, "ls-tree", "-rz", "--name-only", tree).split("\0").filter(Boolean);
+  const paths = (ref: string) => git(cwd, "ls-tree", "-rz", "--name-only", ref).split("\0").filter(Boolean);
+  const after = paths(tree), before = baseline ? paths(baseline) : [];
   for (const [sequence, pattern] of Object.entries(sequences)) {
     const regex = sequenceRegex(pattern);
-    const seen = new Map<string, string>();
-    for (const path of paths) {
-      const match = regex.exec(path);
-      if (!match) continue;
-      const number = match[1].replace(/^0+(?=\d)/, "");
-      const previous = seen.get(number);
-      if (previous !== undefined) return sequence + " number " + number + " occurs in " + previous + " and " + path;
-      seen.set(number, path);
+    const existing = duplicateNumbers(before, regex);
+    for (const [number, pair] of duplicateNumbers(after, regex)) {
+      if (!existing.has(number)) return sequence + " number " + number + " occurs in " + pair;
     }
   }
 }
+
+const queueBranch = (ref: string) => ref.replace(/^refs\/(?:heads\/|remotes\/[^/]+\/)/, "").startsWith("gh-readonly-queue/");
 export type Source = { source_branch?: string; source_head: string; unknown_source?: true };
 export function resolveSources(cwd: string, update: Update, refs: Map<string, string>, protectedBranches: Set<string>): Source[] {
-  const tips = (sha: string) => [...refs].filter(([ref, head]) => head === sha && !/(?:^|\/)gh-readonly-queue\//.test(ref) && !protectedBranches.has(name(ref))).map(([ref]) => ({ source_branch: name(ref), source_head: sha }));
+  const tips = (sha: string) => [...refs].filter(([ref, head]) => head === sha && !queueBranch(ref) && !protectedBranches.has(name(ref))).map(([ref]) => ({ source_branch: name(ref), source_head: sha }));
   const direct = tips(update.new);
   if (direct.length) return direct;
   const parents = git(cwd, "rev-list", "--parents", "-n", "1", update.new).split(" ").slice(1);
@@ -53,7 +63,7 @@ export function resolveSources(cwd: string, update: Update, refs: Map<string, st
 export function draftSources(cwd: string, update: Update, refs: Map<string, string>, statuses: BranchStatus[], covered: Source[] = []): Source[] {
   const sources: Source[] = [];
   for (const status of statuses) {
-    if (!["wip", "draft"].includes(status.state)) continue;
+    if (queueBranch(status.branch) || !["wip", "draft"].includes(status.state)) continue;
     for (const head of new Set([status.head, refs.get("refs/heads/" + status.branch)])) {
       if (!head || covered.some(s => s.source_branch === status.branch && s.source_head === head)) continue;
       if (ancestor(cwd, head, update.new) && (zero(update.old) || !ancestor(cwd, head, update.old)))

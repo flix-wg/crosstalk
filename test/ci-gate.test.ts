@@ -21,13 +21,16 @@ test.each([true, false])("CI merge CLI pins the relay and blocks intermediate dr
     const code = "invite".repeat(10);
     await human.request("/invitations", { request_id: randomUUID(), principal: "ci:checks", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
     expect((await fetch(relay.url + "/v2/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: key, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
-    await human.send("policy.set", { protected_branches: ["main"], gates: { merge: { unknown_source: "block", unknown: "block" } } });
+    await human.send("policy.set", { protected_branches: ["main"], sequences: { migrations: "(\\d+)_*.sql" }, gates: { merge: { unknown_source: "block", unknown: "block" } } });
     git("switch", "-c", "draft"); const draft = commit("draft");
     await human.send("branch.set", { branch: "draft", head: draft, state: "draft" });
-    git("switch", "-c", "feature"); const head = commit("intermediate");
+    git("switch", "-c", "feature"); writeFileSync(join(repo, "conflict"), "feature"); git("add", "conflict");
+    const head = commit("intermediate");
     await human.send("branch.set", { branch: "feature", head, state: "ready" });
     git("switch", "-c", "clean", base); const clean = commit("clean");
     await human.send("branch.set", { branch: "clean", head: clean, state: "ready" });
+    git("switch", "main"); writeFileSync(join(repo, "conflict"), "main"); git("add", "conflict");
+    const target = commit("advance main");
     if (!explicitSource) {
       git("switch", "--detach");
       for (const branch of ["feature", "clean", "draft"]) {
@@ -38,11 +41,12 @@ test.each([true, false])("CI merge CLI pins the relay and blocks intermediate dr
     // CI must ignore even invalid, attacker-controlled repository configuration.
     writeFileSync(join(repo, ".crosstalk.toml"), "malicious invalid config");
     const run = (source: string, sha: string, fingerprint = pin, extra: string[] = []) => new Promise<{ code: number; output: string }>((res, reject) => {
-      const p = spawn(process.execPath, [resolve("dist/cli/main.js"), "gate", "merge", "--relay", relay.url, "--relay-key", fingerprint, "--space", space, "--target", "main", ...(explicitSource ? ["--source", source] : []), "--head", sha, "--base", base, ...extra], { cwd: repo, env: { ...process.env, CROSSTALK_KEY: key }, stdio: ["ignore", "pipe", "pipe"] });
+      const p = spawn(process.execPath, [resolve("dist/cli/main.js"), "gate", "merge", "--relay", relay.url, "--relay-key", fingerprint, "--space", space, "--target", "main", ...(explicitSource ? ["--source", source] : []), "--head", sha, "--base", explicitSource ? target : base, ...extra], { cwd: repo, env: { ...process.env, CROSSTALK_KEY: key }, stdio: ["ignore", "pipe", "pipe"] });
       let output = ""; p.stdout.on("data", b => { output += b; }); p.stderr.on("data", b => { output += b; });
       p.on("error", reject); p.on("close", code => { expect(output).not.toContain(key); res({ code: code ?? 1, output }); });
     });
     const blocked = await run("feature", head);
+    if (explicitSource) expect(blocked.output).toContain("skipping sequence check because the proposed merge has conflicts");
     expect(blocked.code).toBe(1); expect(blocked.output).toContain("draft"); expect(blocked.output).toContain("human∶test");
     expect((await run("clean", clean)).code).toBe(0);
     expect((await run("clean", clean, "sha256:" + "0".repeat(64))).code).toBe(1);

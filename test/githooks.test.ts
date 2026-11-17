@@ -6,7 +6,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomUUID, createHash, createPublicKey } from "node:crypto";
 import { openStore } from "../src/store-sqlite/index.js";
 import { startRelay } from "../src/relay/index.js";
-import { duplicateSequence, trust, RelayClient, credentialScope, Workspace } from "../src/client/index.js";
+import { draftSources, duplicateSequence, trust, RelayClient, credentialScope, Workspace } from "../src/client/index.js";
 import { runPreReceive, runPostReceive, runPreCommit, runPrePush, runSeed, resolveSources } from "../src/githooks/index.js";
 import { installGitHooks } from "../src/githooks/install.js";
 const cleanup: (() => unknown)[] = [];
@@ -51,6 +51,13 @@ test("bare remote enforces draft overrides, exact approval heads, non-FF and out
   const queueRefs = new Map([["refs/remotes/origin/gh-readonly-queue/main/pr-1", merged], ["refs/heads/bridge", git("rev-parse", "bridge")]]);
   expect(resolveSources(repo, { old: initial, new: merged, ref: "refs/heads/main" }, queueRefs, new Set(["main"])))
     .toEqual([{ source_branch: "bridge", source_head: git("rev-parse", "bridge") }]);
+  const update = { old: initial, new: merged, ref: "refs/heads/main" };
+  const ordinary = "team/gh-readonly-queue/topic";
+  queueRefs.set("refs/heads/" + ordinary, merged);
+  expect(resolveSources(repo, update, queueRefs, new Set(["main"]))).toEqual([{ source_branch: ordinary, source_head: merged }]);
+  const status = { type: "branch_status", state: "draft", owner: "human:test", head: merged, rev: 1 } as const;
+  expect(draftSources(repo, update, queueRefs, ["gh-readonly-queue/main/pr-1", ordinary].map(branch => ({ ...status, branch }))))
+    .toEqual([{ source_branch: ordinary, source_head: merged }]);
   const denied = await push("main"); expect(denied.code).not.toBe(0); expect(denied.output).toContain("draft"); expect(denied.output).toContain("human∶test"); expect(denied.output).toContain("API review");
   await human.send("override.record", { scope: ["merge:branch:topic"], bound_head: draft, reason: "reviewed" });
   const allowed = await push("main"); expect(allowed.code, allowed.output).toBe(0);
@@ -119,7 +126,9 @@ test("sequence gate detects duplicate numbers introduced on independent branches
   git("init", "-q", "-b", "main");
   git("config", "user.name", "Test");
   git("config", "user.email", "test@example.org");
-  git("commit", "--allow-empty", "-qm", "initial");
+  for (const path of ["00_old.sql", "0_older.sql"]) writeFileSync(join(repo, path), "");
+  git("add", ".");
+  git("commit", "-qm", "historic duplicate");
   git("branch", "topic");
   for (const [branch, path] of [["main", "01_base.sql"], ["topic", "1_topic.sql"]]) {
     git("switch", "-q", branch);
@@ -127,6 +136,6 @@ test("sequence gate detects duplicate numbers introduced on independent branches
     git("add", path);
     git("commit", "-qm", path);
   }
-  expect(duplicateSequence(repo, "topic", { migrations: "(\\d+)_*.sql" }, "main"))
+  expect(duplicateSequence(repo, git("merge-tree", "--write-tree", "main", "topic"), { migrations: "(\\d+)_*.sql" }, "main"))
     .toBe("migrations number 1 occurs in 01_base.sql and 1_topic.sql");
 });

@@ -34,7 +34,7 @@ export type BranchStatus = {
 
 export type Lease = {
   "type": "lease";
-  mode: "exclusive" | "shared";
+  mode?: "exclusive" | "shared";
   "lease_id": string;
   "op": "acquire" | "install" | "release" | "expire" | "revoke";
   "state": "pending" | "held" | "released" | "expired" | "revoked";

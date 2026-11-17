@@ -137,7 +137,6 @@
       "required": [
         "type",
         "lease_id",
-        "mode",
         "op",
         "state",
         "resources",
@@ -1585,6 +1584,9 @@
           "properties": {
             "sequences": {
               "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
               "additionalProperties": {
                 "type": "string",
                 "pattern": "^[^()]*\\(\\\\d\\+\\)[^()]*$"
