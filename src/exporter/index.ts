@@ -6,7 +6,7 @@ import { createPublicKey } from "node:crypto";
 import { ClientError, RelayClient, LocalCache, loadConfig, loadAgentKey, credentialScope, verifyRelaySignature } from "../client/index.js";
 import { auditSigningText, eventHash, exportChain, exportHash, GENESIS_PREV_HASH, jcs, validateEventTolerant } from "../schema/index.js";
 import type { AuditHead, Event, ExportLine } from "../schema/index.js";
-export const AUDIT_REF = "refs/crosstalk/audit/v1";
+export const AUDIT_REF = "refs/crosstalk/audit/v2";
 function git(repo: string, args: string[], input?: string, extra: NodeJS.ProcessEnv = {}): string {
   return execFileSync("git", ["-C", repo, ...args], { input, encoding: "utf8", timeout: 30000, maxBuffer: 128 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1", ...extra } });
 }

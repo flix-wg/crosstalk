@@ -1,4 +1,3 @@
-import { expireAsks } from "./asks.js";
 import { expireIntents, newestIntent } from "./coordination.js";
 import { canonicalKey, foldKey, overlaps, validateInstall } from "../schema/index.js";
 import type { Event, Lease } from "../schema/index.js";
@@ -204,7 +203,7 @@ export function expireSessions(tx: SqlTx, ctx: Ctx): Event[] {
   return events;
 }
 export function sweep(tx: SqlTx, ctx: Ctx): Event[] {
-  const events = [...expireSessions(tx, ctx),...expireLeases(tx, ctx), ...expireIntents(tx, ctx), ...expireAsks(tx, ctx)];
+  const events = [...expireSessions(tx, ctx),...expireLeases(tx, ctx), ...expireIntents(tx, ctx)];
   tx.run("UPDATE presence SET state='offline' WHERE expires_at<=?", ctx.now());
   return events;
 }

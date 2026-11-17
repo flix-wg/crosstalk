@@ -31,7 +31,7 @@ test("bare-repository exports attest both chains, retry concurrent writers, reta
   let config = configure(); const human = new RelayClient(config, { token: humanKey }), ci = new RelayClient(config, { token: ciKey });
   const code = "invite".repeat(10);
   await human.request("/invitations", { request_id: randomUUID(), principal: "ci:remote", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
-  expect((await fetch(relay.url + "/v1/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: ciKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
+  expect((await fetch(relay.url + "/v2/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: ciKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
   const opened = await new RelayClient(config, { token: agentKey }).request<{ token: string }>("/sessions", { tool: "cli", harness_session_id: "test", machine: "test", worktree: repo, branch: null, head: null });
   const session = new RelayClient(config, { token: opened.result.token });
   await session.send("message.send", { to: ["all"], context_id: randomUUID(), parts: [{ kind: "text", text: "private message excluded" }] });

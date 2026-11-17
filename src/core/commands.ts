@@ -51,7 +51,7 @@ const revoke: Handler = c => {
 };
 const handlers: Partial<Record<Command["op"], Handler>> = { "session.release": releaseSession, "principal.invite": invite, "principal.revoke": revoke,
   "deployment.record": deploymentRecord, "env.adopt": deploymentRecord, "executor.enroll": executorEnroll, "space.freeze": freezeChange, "space.unfreeze": freezeChange,
-  "ask.open": askOpen, "ask.answer": askChange, "ask.cancel": askChange, "ask.withdraw": askChange, "override.record": overrideRecord,
+  "ask.open": askOpen, "ask.answer": askChange, "ask.withdraw": askChange, "override.record": overrideRecord,
   reserve, "intent.post": intent, "intent.close": intent, "branch.set": branchSet, "message.send": messaging, "inbox.ack": messaging, "policy.set": policySet, "ref.advance": refAdvance, "ref.seed": refAdvance,
   "lease.claim": claim, "lease.release": releaseOrRevoke, "lease.revoke": releaseOrRevoke };
 export function execute(tx: SqlTx, ctx: Ctx, actor: Actor, input: unknown): Result {

@@ -35,7 +35,7 @@ export type Intent = {
 export type BranchStatus = {
   "type": "branch_status";
   "branch": string;
-  "state": "wip" | "draft" | "ready" | "cleared";
+  "state": "wip" | "draft" | "ready";
   "head": Oid;
   "owner": string;
   "note"?: string;
@@ -85,7 +85,7 @@ export type Ask = {
   "blocks"?: (string)[];
   "bound_head"?: Oid;
   "bound_artifact"?: Digest;
-  "state": "open" | "answered" | "rejected" | "canceled" | "expired" | "withdrawn";
+  "state": "open" | "answered" | "withdrawn";
   "deadline"?: Time;
 };
 
@@ -133,7 +133,7 @@ export type Admin = {
 };
 
 export type Event = {
-  "v": 1;
+  "v": 2;
   "space": string;
   "epoch": string;
   "seq": number;
@@ -165,16 +165,14 @@ export interface CommandArgs {
   "message.send": Pick<Message, "to" | "context_id" | "parts">;
   "inbox.ack": { cursor: number };
   "ask.open": Pick<Ask, "kind" | "to" | "question" | "options" | "resources" | "blocks" | "bound_head" | "bound_artifact" | "deadline">;
-  "ask.cancel": { ask_id: string };
   "branch.set": Pick<BranchStatus, "branch" | "head" | "note" | "pending"> & { state: "wip" | "draft" | "ready"; owner?: string };
-  "ask.answer": { ask_id: string; choice: string; text?: string; reaffirm?: boolean; bound_head?: Oid; bound_artifact?: Digest };
+  "ask.answer": { ask_id: string; choice: string; text?: string; bound_head?: Oid; bound_artifact?: Digest };
   "ask.withdraw": { ask_id: string; reason?: string };
   "override.record": { scope: string[]; bound_head: Oid; bound_artifact?: Digest; reason: string };
   "deployment.record": DeploymentReport;
   "space.freeze": { reason?: string };
   "env.adopt": Pick<Deployment, "env" | "sha" | "artifact">;
   "executor.enroll": { executor: string; env: string; max_fence: number };
-  "executor.reconcile": { env: string };
   "lease.revoke": { lease_id: string; reason: string };
   "principal.invite": { principal: string; role: "admin" | "member" | "ci" };
   "principal.revoke": { principal: string; reason?: string; device?: string };

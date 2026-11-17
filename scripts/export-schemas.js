@@ -21,11 +21,13 @@ const versions = readdirSync(snapshots).filter(v => /^\d+\.\d+$/.test(v)).map(v 
 const newest = new Map();
 for (const [major, minor] of versions) {
   cpSync(join(snapshots, `${major}.${minor}`), join(out, "schema", `${major}.${minor}`), { recursive: true });
+  const vectors = join("test-vectors", `${major}.${minor}`);
+  if (existsSync(vectors)) cpSync(vectors, join(out, "test-vectors", `${major}.${minor}`), { recursive: true });
   newest.set(major, `${major}.${minor}`);
 }
 for (const [major, version] of newest) cpSync(join(snapshots, version), join(out, "schema", `v${major}`), { recursive: true });
 const names = Object.keys(publishedSchemas());
-const links = names.map(name => `<li><a href="schema/v1/${name}.json">${SCHEMA_BASE}v1/${name}.json</a></li>`).join("\n");
+const links = [...newest.keys()].flatMap(major => names.map(name => `<li><a href="schema/v${major}/${name}.json">${SCHEMA_BASE}v${major}/${name}.json</a></li>`)).join("\n");
 const snapshotLinks = versions.map(([major, minor]) => `<a href="schema/${major}.${minor}/">${major}.${minor}</a>`).join(", ");
 writeFileSync(join(out, "index.html"), `<!doctype html><meta charset="utf-8"><title>crosstalk schemas</title>
 <h1>crosstalk protocol schemas</h1>

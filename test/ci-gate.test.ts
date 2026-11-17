@@ -20,7 +20,7 @@ test("CI merge CLI pins the relay without checkout config and blocks draft ances
     const human = new RelayClient(trust(repo), { token: humanKey });
     const code = "invite".repeat(10);
     await human.request("/invitations", { request_id: randomUUID(), principal: "ci:checks", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
-    expect((await fetch(relay.url + "/v1/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: key, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
+    expect((await fetch(relay.url + "/v2/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: key, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
     await human.send("policy.set", { protected_branches: ["main"] });
     git("switch", "-c", "draft"); const draft = commit("draft");
     await human.send("branch.set", { branch: "draft", head: draft, state: "draft" });

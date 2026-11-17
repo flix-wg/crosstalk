@@ -1,12 +1,12 @@
 // Protocol Appendix A event schema. Keep wire-schema changes in sync with types.ts and docs/protocol.md.
 export const eventSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://flix-wg.github.io/crosstalk/schema/v1/event.json",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v2/event.json",
   "type": "object",
   "additionalProperties": false,
   "required": ["v", "space", "epoch", "seq", "id", "request_id", "recorded_at", "actor", "git", "prev_hash", "hash", "body"],
   "properties": {
-    "v": {"const": 1},
+    "v": {"const": 2},
     "space": {"type": "string", "format": "uuid"},
     "epoch": {"type": "string", "format": "uuid"},
     "seq": {"type": "integer", "minimum": 1},
@@ -77,7 +77,7 @@ export const eventSchema = {
       "required": ["type", "branch", "state", "head", "owner", "rev"],
       "properties": {
         "type": {"const": "branch_status"}, "branch": {"type": "string"},
-        "state": {"enum": ["wip", "draft", "ready", "cleared"]},
+        "state": {"enum": ["wip", "draft", "ready"]},
         "head": {"$ref": "#/$defs/oid"}, "owner": {"type": "string"},
         "note": {"type": "string", "maxLength": 280},
         "pending": {"type": "array", "items": {"type": "string", "maxLength": 140}, "maxItems": 10},
@@ -135,7 +135,7 @@ export const eventSchema = {
                    "items": {"type": "string", "pattern": "^(merge:branch:\\S+|deploy:env:[a-z0-9-]+)$"}},
         "bound_head": {"$ref": "#/$defs/oid"},
         "bound_artifact": {"$ref": "#/$defs/digest"},
-        "state": {"enum": ["open", "answered", "rejected", "canceled", "expired", "withdrawn"]},
+        "state": {"enum": ["open", "answered", "withdrawn"]},
         "deadline": {"$ref": "#/$defs/time"}
       },
       "if": {"properties": {"kind": {"const": "question"}}},

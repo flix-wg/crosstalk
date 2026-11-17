@@ -1,0 +1,95 @@
+{
+  "canonical": [
+    {
+      "input": "tree:api",
+      "output": "tree:api/"
+    },
+    {
+      "input": "path:café/file",
+      "output": "path:café/file"
+    },
+    {
+      "input": "branch:Topic",
+      "output": "branch:Topic"
+    },
+    {
+      "input": "env:prod",
+      "output": "env:prod"
+    },
+    {
+      "input": "seq:build_1",
+      "output": "seq:build_1"
+    },
+    {
+      "input": "path:a/../b",
+      "output": "invalid_resource"
+    },
+    {
+      "input": "tree:/",
+      "output": "invalid_resource"
+    },
+    {
+      "input": "path:a//b",
+      "output": "invalid_resource"
+    },
+    {
+      "input": "env:Prod",
+      "output": "invalid_resource"
+    },
+    {
+      "input": "res:two words",
+      "output": "invalid_resource"
+    },
+    {
+      "input": "path:a\\b",
+      "output": "invalid_resource"
+    }
+  ],
+  "overlap": [
+    {
+      "a": "tree:API",
+      "b": "path:api/x",
+      "output": true
+    },
+    {
+      "a": "tree:api",
+      "b": "path:apix/x",
+      "output": false
+    },
+    {
+      "a": "path:Straße",
+      "b": "path:STRASSE",
+      "output": true
+    },
+    {
+      "a": "path:ς",
+      "b": "path:σ",
+      "output": true
+    },
+    {
+      "a": "branch:Topic",
+      "b": "branch:topic",
+      "output": true
+    },
+    {
+      "a": "branch:topic",
+      "b": "path:topic",
+      "output": false
+    },
+    {
+      "a": "seq:build",
+      "b": "seq:build",
+      "output": false
+    },
+    {
+      "a": "tree:a/b",
+      "b": "tree:A",
+      "output": true
+    },
+    {
+      "a": "env:prod",
+      "b": "env:stage",
+      "output": false
+    }
+  ]
+}

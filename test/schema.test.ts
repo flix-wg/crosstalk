@@ -37,9 +37,9 @@ test("published schemas compile together and match the protocol's schema index",
   ajv.addKeyword("x-crosstalk-version");
   for (const schema of published) ajv.addSchema(schema);
   for (const schemaId of listed) expect(ajv.getSchema(schemaId)).toBeTypeOf("function");
-  const deploy = ajv.getSchema(`${SCHEMA_BASE}v1/deploy.json`)!;
+  const deploy = ajv.getSchema(`${SCHEMA_BASE}v2/deploy.json`)!;
   expect(deploy({ env: "prod", sha: "a".repeat(40), artifact: digest, lease_id: id, fence: 1, op: id })).toBe(true);
-  const gate = ajv.getSchema(`${SCHEMA_BASE}v1/gate.json`)!;
+  const gate = ajv.getSchema(`${SCHEMA_BASE}v2/gate.json`)!;
   expect(gate({ kind: "merge", source_branch: "x", source_head: "a".repeat(40), target_branch: "main" })).toBe(true);
 });
 
@@ -159,14 +159,12 @@ test("every command op validates minimal inputs and rejects missing args or unkn
     "message.send": { to: ["all"], context_id: id, parts: [{ kind: "text", text: "Hello" }] },
     "inbox.ack": { cursor: 0 },
     "ask.open": { kind: "approval", to: "human:felix", question: "Ship?", blocks: ["deploy:env:prod"] },
-    "ask.cancel": { ask_id: id },
     "branch.set": { branch: "main", state: "ready", head: null },
     "ask.answer": { ask_id: id, choice: "approve" },
     "ask.withdraw": { ask_id: id },
     "override.record": { scope: ["merge:branch:main"], bound_head: null, reason: "Reviewed" },
     "env.adopt": { env: "prod", sha: null, artifact: digest },
     "executor.enroll": { env: "prod", executor: "ci:exec-prod", max_fence: 0 },
-    "executor.reconcile": { env: "prod" },
     "lease.revoke": { lease_id: id, reason: "Stuck" },
     "principal.invite": { principal: "human:felix", role: "admin" },
     "principal.revoke": { principal: "human:felix" },
@@ -179,7 +177,7 @@ test("every command op validates minimal inputs and rejects missing args or unkn
   };
   expect(Object.keys(examples).sort()).toEqual(Object.keys(commandArgsSchemas).sort());
   for (const [op, args] of Object.entries(examples)) {
-    expect(validateCommand({ request_id: id, op, args }), op + JSON.stringify(validateCommand.errors)).toBe(true);
+    expect(validateCommand({ request_id: id, op, args, ...(["ask.answer", "ask.withdraw"].includes(op) ? { expect_rev: 1 } : {}) }), op + JSON.stringify(validateCommand.errors)).toBe(true);
     expect(validateCommand({ request_id: id, op })).toBe(false);
     expect(validateCommand({ request_id: id, op, args: { ...args, bogus: true } })).toBe(false);
   }

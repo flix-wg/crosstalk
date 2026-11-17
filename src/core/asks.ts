@@ -1,9 +1,8 @@
 import { canonicalKey } from "../schema/index.js";
-import type { Ask, BranchStatus, Decision, Event, Message } from "../schema/index.js";
+import type { Ask, BranchStatus, Decision, Message } from "../schema/index.js";
 import type { CommandContext, Handler } from "./commands.js";
-import type { Ctx, SqlTx } from "./types.js";
 import { emitCommand, readBody } from "./coordination.js";
-import { appendEvent, fail, ok, spaceRow } from "./log.js";
+import { fail, ok } from "./log.js";
 import { isAdmin } from "./identity.js";
 
 export interface AskRow { space: string; ask_id: string; asker: string; body: string }
@@ -38,15 +37,14 @@ export const askOpen: Handler = c => {
 };
 export const askChange: Handler = c => {
   const { tx, ctx, actor, who, cmd } = c;
-  if (cmd.op !== "ask.answer" && cmd.op !== "ask.withdraw" && cmd.op !== "ask.cancel") return fail(tx, actor.space, "invalid_request", "Wrong operation");
+  if (cmd.op !== "ask.answer" && cmd.op !== "ask.withdraw") return fail(tx, actor.space, "invalid_request", "Wrong operation");
   const row = tx.get<AskRow>("SELECT * FROM asks WHERE space=? AND ask_id=?", actor.space, cmd.args.ask_id);
   if (!row) return fail(tx, actor.space, "not_found", "Ask not found");
   const ask = JSON.parse(row.body) as Ask;
   const addressed = who.kind === "human" && !who.session && who.principal === ask.to;
-  if (cmd.op === "ask.answer" ? !addressed : cmd.op === "ask.withdraw" ? !addressed && !isAdmin(who) : row.asker !== who.principal && !isAdmin(who))
+  if (cmd.op === "ask.answer" ? !addressed : !addressed && !isAdmin(who) && (row.asker !== who.principal || !!ask.blocks?.length))
     return fail(tx, actor.space, "not_authorized", "Addressed human key or authorized owner required");
   if (cmd.expect_rev !== ask.rev) return fail(tx, actor.space, "stale_revision", "Expected ask revision required and must match");
-  const expired = ask.state === "open" && ask.deadline !== undefined && Date.parse(ask.deadline) <= ctx.now();
   if (cmd.op === "ask.withdraw") {
     if (ask.state === "withdrawn") return fail(tx, actor.space, "stale_revision", "Requirement already withdrawn");
     const updated: Ask = { ...ask, state: "withdrawn", rev: ask.rev + 1 };
@@ -54,20 +52,16 @@ export const askChange: Handler = c => {
     emitCommand(c, { type: "admin", action: "requirement_withdrawn", subject: ask.ask_id, ...(cmd.args.reason ? { reason: cmd.args.reason } : {}) });
     return ok(tx, actor.space, updated);
   }
-  const reaffirm = cmd.op === "ask.answer" && cmd.args.reaffirm === true;
-  if (reaffirm ? ask.kind !== "approval" || ask.state !== "answered" : ask.state !== "open" || expired)
+  if (ask.state !== "open" && !(ask.kind === "approval" && ask.state === "answered"))
     return fail(tx, actor.space, "stale_revision", "Ask is no longer answerable at this revision");
-  if (cmd.op === "ask.cancel") {
-    const updated: Ask = { ...ask, state: "canceled", rev: ask.rev + 1 };
-    save(c, updated);
-    return ok(tx, actor.space, updated);
-  }
   if (ask.kind === "approval" && !["approve", "reject"].includes(cmd.args.choice)) return fail(tx, actor.space, "invalid_request", "Approval choice must be approve or reject");
   if (ask.kind === "question" && ask.options && !ask.options.includes(cmd.args.choice)) return fail(tx, actor.space, "invalid_request", "Choice must be a question option");
-  if (!reaffirm && (cmd.args.bound_head !== undefined || cmd.args.bound_artifact !== undefined)) return fail(tx, actor.space, "invalid_request", "Revision changes require reaffirm");
-  if (reaffirm && (cmd.args.choice !== "approve" || !cmd.args.bound_head)) return fail(tx, actor.space, "invalid_request", "Reaffirm requires approval and a new head");
-  const updated: Ask = { ...ask, rev: ask.rev + 1, state: ask.kind === "approval" && cmd.args.choice === "reject" ? "rejected" : "answered",
-    ...(reaffirm ? { bound_head: cmd.args.bound_head!, ...(cmd.args.bound_artifact ? { bound_artifact: cmd.args.bound_artifact } : {}) } : {}) };
+  const rebind = cmd.args.bound_head !== undefined || cmd.args.bound_artifact !== undefined;
+  if (rebind && (ask.kind !== "approval" || cmd.args.choice !== "approve" || !cmd.args.bound_head ||
+      (ask.blocks?.some(scope => scope.startsWith("deploy:")) && !cmd.args.bound_artifact)))
+    return fail(tx, actor.space, "invalid_request", "Rebinding requires approval, a head, and an artifact for deploy scopes");
+  const updated: Ask = { ...ask, rev: ask.rev + 1, state: "answered",
+    ...(rebind ? { bound_head: cmd.args.bound_head!, ...(cmd.args.bound_artifact ? { bound_artifact: cmd.args.bound_artifact } : {}) } : {}) };
   save(c, updated);
   emitCommand(c, { type: "answer", ask_id: ask.ask_id, answer_id: ctx.uuid(), choice: cmd.args.choice, ...(cmd.args.text ? { text: cmd.args.text } : {}) });
   if (ask.kind === "approval") saveDecision(c, { type: "decision", decision_id: ctx.uuid(), source: { kind: "ask", id: ask.ask_id },
@@ -94,14 +88,3 @@ export const overrideRecord: Handler = c => {
   emitCommand(c, { type: "admin", action: "override_recorded", subject: body.decision_id, reason: cmd.args.reason });
   return ok(tx, actor.space, body);
 };
-export function expireAsks(tx: SqlTx, ctx: Ctx): Event[] {
-  const events: Event[] = [];
-  for (const row of tx.all<AskRow>("SELECT * FROM asks WHERE status='open' AND expires<=?", ctx.now())) {
-    const ask = JSON.parse(row.body) as Ask;
-    if (ask.state !== "open" || !ask.deadline || Date.parse(ask.deadline) > ctx.now()) continue;
-    const body: Ask = { ...ask, state: "expired", rev: ask.rev + 1 };
-    tx.run("UPDATE asks SET body=? WHERE space=? AND ask_id=?", JSON.stringify(body), row.space, row.ask_id);
-    events.push(appendEvent(tx, { ...ctx, epoch: spaceRow(tx, row.space).epoch }, row.space, { principal: "ci:relay", via: "relay", tool: "relay" }, null, body));
-  }
-  return events;
-}

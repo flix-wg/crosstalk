@@ -27,7 +27,7 @@ test('ADA-4 steps 1–6: durable review, human authority, three G2 pushes, two a
   const unknown = await f.push('dana', g2 + ':refs/heads/main'); expect(unknown.code).not.toBe(0); expect(unknown.output).toContain('Unknown merge source');
   git(repo, 'switch', 'main'); git(repo, 'merge', '--no-ff', 'gateway-route', '-m', 'merge G2');
   const parent = await f.push('dana', 'main'); expect(parent.code).not.toBe(0); expect(parent.output).toContain('Unknown merge source');
-  await f.human('felix', ['answer', ask.ask_id, 'approve', '--reaffirm', '--head', g2]);
+  await f.human('felix', ['answer', ask.ask_id, 'approve', '--head', g2]);
   ok(await f.push('dana', 'gateway-route', g2 + ':refs/heads/main'));
   // 5
   const second = json(await f.cli('felix', ['ask', 'human:dana', 'Second review?', '--approval', '--blocks', 'merge:branch:gateway-route', '--head', g2, '--json'])).result;
@@ -35,7 +35,7 @@ test('ADA-4 steps 1–6: durable review, human authority, three G2 pushes, two a
   expect((await check()).code).toBe(3); expect((await f.push('dana', 'main')).code).not.toBe(0); await f.human('dana', ['answer', second.ask_id, 'approve']); expect(json(await check()).result.verdict).toBe('pass'); ok(await f.push('dana', 'main'));
   // 6
   ok(await f.cli('remote', ['audit', 'export'])); ok(await f.cli('remote', ['audit', 'verify']));
-  const ref = 'refs/crosstalk/audit/v1', paths = git(f.bare, 'ls-tree', '-r', '--name-only', ref).split('\n'), events = paths.find(p => p.endsWith('.jsonl'));
+  const ref = 'refs/crosstalk/audit/v2', paths = git(f.bare, 'ls-tree', '-r', '--name-only', ref).split('\n'), events = paths.find(p => p.endsWith('.jsonl'));
   expect(events).toBeTruthy(); const contents = git(f.bare, 'show', ref + ':' + events); expect(contents).toContain('Public route'); expect(contents).toContain('decision'); expect(contents).toContain(ask.ask_id);
   // Rewrite an exported event through real Git plumbing, retaining the signed head.
   const blob = await import('./fixture.js').then(({ run }) => run('git', ['hash-object', '-w', '--stdin'], { cwd: f.bare, input: contents.replace('Public route', 'Tampered route') + '\n' })); ok(blob);

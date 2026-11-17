@@ -234,7 +234,7 @@ export function classifyShell(command: string, cwd: string | null, home = proces
     const xi = words.findIndex(w => /^(?:.*\/)?xt$/.test(w));
     if (xi >= 0) {
       const [op, sub] = words.slice(xi + 1);
-      if (["answer", "override", "trust", "enroll", "admin"].includes(op) || (op === "hook" && sub === "git" && words[xi + 3] === "seed") || (op === "ask" && sub === "withdraw") || (op === "release" && words.slice(xi + 2).includes("--human")) || (op === "env" && sub === "adopt") || (op === "executor" && ["enroll", "reconcile"].includes(sub))) out.push({ kind: "human", dir, refs: [], words });
+      if (["answer", "override", "trust", "enroll", "admin"].includes(op) || (op === "hook" && sub === "git" && words[xi + 3] === "seed") || (op === "ask" && sub === "withdraw" && words.slice(xi + 2).includes("--human")) || (op === "release" && words.slice(xi + 2).includes("--human")) || (op === "env" && sub === "adopt") || (op === "executor" && ["enroll", "reconcile"].includes(sub))) out.push({ kind: "human", dir, refs: [], words });
       if (op === "executor" && sub === "promote") out.push({ kind: "deploy", dir, refs: [], words: words.slice(xi + 3) });
     }
     if (/(?:^|[\s(])(?:\S*\/)?(?:ssh|mosh|bash|sh|zsh|eval|xargs)(?=\s|$)/.test(seg.masked)) {

@@ -74,7 +74,7 @@ test("offline outbox persists and drains only an acknowledged prefix; claims sta
   const epoch = randomUUID(), sent: unknown[] = [];
   const fetcher: typeof fetch = async (_input, init) => {
     if (offline) throw new TypeError();
-    if (String(_input).endsWith("/v1/hello")) return hello(init);
+    if (String(_input).endsWith("/v2/hello")) return hello(init);
     const cmd = JSON.parse(String(init?.body));
     sent.push(cmd);
     return Response.json({ epoch, seq: sent.length, receipt: cmd.request_id, result: {} });
@@ -156,7 +156,7 @@ test("long-poll completes beyond the default ten-second client timeout", { timeo
 test("relay error codes cannot inject text into client errors", async () => {
   const r = repo(randomUUID(), "https://example.invalid");
   let code = "bad code: credential-secret";
-  const client = new RelayClient(trust(r.dir), { token: "unused", fetch: async (url, init) => String(url).endsWith("/v1/hello") ? hello(init) :
+  const client = new RelayClient(trust(r.dir), { token: "unused", fetch: async (url, init) => String(url).endsWith("/v2/hello") ? hello(init) :
     Response.json({ error: { code, message: "credential-secret" } }, { status: 400 }) });
   for (code of ["bad code: credential-secret", "a".repeat(41), "", "UPPERCASE", "bad\ncode", "bad\n"]) {
     await expect(client.request("/board")).rejects.toMatchObject({ code: "invalid_response", message: "Relay refused request: invalid_response" });
@@ -195,7 +195,7 @@ test("hello proves the pinned key before credentials, shares verification and la
   } });
   for (let i = 0; i < 2; i++) await expect(wrong.request("/board")).rejects.toMatchObject({ code: "relay_key_mismatch" });
   expect(calls).toBe(2);
-  const helloRequest = () => fetch(relay.url + "/v1/hello", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": randomUUID() }, body: JSON.stringify({ nonce: "n".repeat(32) }) });
+  const helloRequest = () => fetch(relay.url + "/v2/hello", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": randomUUID() }, body: JSON.stringify({ nonce: "n".repeat(32) }) });
   expect((await helloRequest()).status).toBe(200);
   expect((await helloRequest()).status).toBe(429);
 });
@@ -236,7 +236,7 @@ test("rate limiting retries once only within the request budget", async () => {
   const r = repo(randomUUID(), "https://example.invalid"), config = trust(r.dir);
   let calls = 0;
   const fetcher: typeof fetch = async (url, init) => {
-    if (String(url).endsWith("/v1/hello")) return hello(init);
+    if (String(url).endsWith("/v2/hello")) return hello(init);
     calls++;
     return Response.json({ error: { code: "rate_limited" } }, { status: 429, headers: { "retry-after": "0.01" } });
   };
@@ -265,11 +265,11 @@ test("client sends its version and rejects a different major on handshake or nor
   for (const mismatchAt of ["hello", "board", "none"]) {
     const paths: string[] = [];
     const client = new RelayClient(config, { token: "unused", fetch: async (input, init) => {
-      expect(new Headers(init?.headers).get("Crosstalk-Protocol")).toBe("1.0");
-      const path = String(input).endsWith("/v1/hello") ? "hello" : "board";
+      expect(new Headers(init?.headers).get("Crosstalk-Protocol")).toBe("2.0");
+      const path = String(input).endsWith("/v2/hello") ? "hello" : "board";
       paths.push(path);
       const response = path === "hello" ? hello(init) : Response.json({ epoch: randomUUID(), seq: 0, result: {} });
-      response.headers.set("Crosstalk-Protocol", path === mismatchAt ? "2.0" : "1.99");
+      response.headers.set("Crosstalk-Protocol", path === mismatchAt ? "1.0" : "2.99");
       return response;
     } });
     if (mismatchAt === "none") await expect(client.request("/board")).resolves.toMatchObject({ result: {} });

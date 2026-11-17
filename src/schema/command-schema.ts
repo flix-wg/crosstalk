@@ -48,14 +48,13 @@ export const commandArgsSchemas = {
     }, ["kind", "to", "question"]),
     if: d.ask.if, then: d.ask.then,
   },
-  "ask.cancel": object({ ask_id: uuid }, ["ask_id"]),
   "branch.set": object({
     branch: text, state: { enum: ["wip", "draft", "ready"] }, head: ref("oid"),
     note: branch.note, pending: branch.pending, owner: principal,
   }, ["branch", "state", "head"]),
   "ask.answer": object({
     ask_id: uuid, choice: d.answer.properties.choice, text: d.answer.properties.text,
-    reaffirm: { type: "boolean" }, bound_head: ref("oid"), bound_artifact: ref("digest"),
+    bound_head: ref("oid"), bound_artifact: ref("digest"),
   }, ["ask_id", "choice"]),
   "ask.withdraw": object({ ask_id: uuid, reason: note }, ["ask_id"]),
   "override.record": object({
@@ -70,7 +69,6 @@ export const commandArgsSchemas = {
   "space.freeze": object({ reason: note }, []),
   "env.adopt": object({ env, sha: ref("oid"), artifact: ref("digest") }, ["env", "sha", "artifact"]),
   "executor.enroll": object({ env, executor: { ...principal, pattern: "^ci:[a-z0-9][a-z0-9-]{0,38}$" }, max_fence: counter }, ["env", "executor", "max_fence"]),
-  "executor.reconcile": object({ env }, ["env"]),
   "lease.revoke": object({ lease_id: uuid, reason: { ...note, minLength: 1 } }, ["lease_id", "reason"]),
   "principal.invite": object({ principal, role: { enum: ["admin", "member", "ci"] } }, ["principal", "role"]),
   "principal.revoke": object({ principal, reason: note, device: { type: "string", minLength: 1, maxLength: 80 } }, ["principal"]),
@@ -91,10 +89,10 @@ export const commandArgsSchemas = {
 
 export const commandSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://flix-wg.github.io/crosstalk/schema/v1/command.json",
+  $id: "https://flix-wg.github.io/crosstalk/schema/v2/command.json",
   $defs: d,
   oneOf: Object.entries(commandArgsSchemas).map(([op, args]) => object({
     request_id: uuid, op: { const: op }, args,
     expect_rev: { type: "integer", minimum: 1 },
-  }, ["request_id", "op", "args"])),
+  }, ["request_id", "op", "args", ...(["ask.answer", "ask.withdraw"].includes(op) ? ["expect_rev"] : [])])),
 };

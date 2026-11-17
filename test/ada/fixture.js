@@ -63,7 +63,7 @@ export async function fixture(onCleanup) {
   }
   await boot();
   async function api(who, path, body, token) {
-    const r = await fetch(url + '/v1/spaces/' + space + path, { signal: AbortSignal.timeout(10000), method: body === undefined ? 'GET' : 'POST', headers: { authorization: 'Bearer ' + (token ?? keys[who].agent), 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const r = await fetch(url + '/v2/spaces/' + space + path, { signal: AbortSignal.timeout(10000), method: body === undefined ? 'GET' : 'POST', headers: { authorization: 'Bearer ' + (token ?? keys[who].agent), 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: r.status, body: await r.json() };
   }
   const command = (who, op, args, extra = {}, token) => api(who, '/commands', { request_id: randomUUID(), op, args, ...extra }, token);

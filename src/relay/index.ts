@@ -119,25 +119,25 @@ export async function startRelay(config: RelayConfig): Promise<{ url: string; cl
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/.well-known/crosstalk" && req.method === "GET") {
-        send({ protocol: "crosstalk", versions: [{ version: PROTOCOL_VERSION, base: "/v1" }], deprecated: [], implementation: { name: "crosstalk", version: IMPLEMENTATION_VERSION } });
+        send({ protocol: "crosstalk", versions: [{ version: PROTOCOL_VERSION, base: "/v2" }], deprecated: [], implementation: { name: "crosstalk", version: IMPLEMENTATION_VERSION } });
         return;
       }
       const major = /^\/v(\d+)\//.exec(url.pathname)?.[1];
-      if (major !== undefined && major !== "1") throw new HttpError("unsupported_version");
-      if (url.pathname === "/v1/hello" && req.method === "POST") {
+      if (major !== undefined && major !== "2") throw new HttpError("unsupported_version");
+      if (url.pathname === "/v2/hello" && req.method === "POST") {
         limit("hello/" + (config.trustProxy ? String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress).split(",")[0].trim() : req.socket.remoteAddress));
         const { nonce } = await body(req);
         if (typeof nonce !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(nonce)) throw new HttpError("invalid_request");
         send({ public_key: signing.public_key, signature: signing.sign("crosstalk-hello:" + nonce) });
         return;
       }
-      if (url.pathname === "/v1/init" && req.method === "POST") {
+      if (url.pathname === "/v2/init" && req.method === "POST") {
         if (!operatorMatches(config.operatorKey, /^Bearer (\S+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "")) throw new HttpError("unauthenticated");
         const input = await body(req);
         const result = store.tx(tx => initializeSpace(tx, input));
         send(result, "error" in result ? statuses[result.error.code] ?? 400 : 200); return;
       }
-      const match = /^\/v1\/spaces\/([^/]+)(\/.*)$/.exec(url.pathname);
+      const match = /^\/v2\/spaces\/([^/]+)(\/.*)$/.exec(url.pathname);
       if (!match) throw new HttpError("not_found");
       try { space = decodeURIComponent(match[1]); } catch { throw new HttpError("invalid_request"); }
       const path = match[2];

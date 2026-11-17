@@ -1,5 +1,5 @@
 export const sessionSchema = {
-  $id: "https://flix-wg.github.io/crosstalk/schema/v1/session.json",
+  $id: "https://flix-wg.github.io/crosstalk/schema/v2/session.json",
   type: "object", additionalProperties: false,
   required: ["tool", "harness_session_id", "machine", "worktree", "branch", "head"],
   properties: {
@@ -25,7 +25,7 @@ export interface InstallInput {
   epoch: string; lease_id: string; env: string; fence: number; max_fence: number; dry_run: boolean;
 }
 export const installSchema = {
-  $id: "https://flix-wg.github.io/crosstalk/schema/v1/install.json",
+  $id: "https://flix-wg.github.io/crosstalk/schema/v2/install.json",
   type: "object", additionalProperties: false,
   required: ["epoch", "lease_id", "env", "fence", "max_fence", "dry_run"],
   properties: {

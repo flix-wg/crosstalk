@@ -35,6 +35,8 @@ test("ported parser tracks quoted chains, heredocs, wrappers and uncertain direc
   expect(splitHeredocs("bash <<'EOF'\ngit merge topic\nEOF").bodies[0].body).toBe("git merge topic");
   expect(classifyShell("bash -c 'xt answer ask approve'", "/repo")[0].kind).toBe("human");
   expect(classifyShell("echo $(xt answer ask approve)", "/repo")[0].kind).toBe("human");
+  expect(classifyShell("xt ask withdraw abc", "/repo")).toEqual([]);
+  expect(classifyShell("xt ask withdraw abc --human", "/repo")[0].kind).toBe("human");
   expect(classifyShell("xt release abc --human", "/repo")[0].kind).toBe("human"); expect(classifyShell("xt release abc", "/repo")).toEqual([]);
   expect(classifyShell("git -C ../other merge topic", "/repo/work")[0]).toMatchObject({ dir: "/repo/other", refs: ["topic"] });
   expect(classifyShell("git switch -c new topic; xt executor promote prod", "/repo").map(a => a.kind)).toEqual(["branch", "deploy"]);
@@ -188,7 +190,7 @@ test("configured deploy segments require an installed session lease and fail clo
   expect((await deploy()).permissionDecisionReason).toContain("xt claim env:prod");
   const code = "invite".repeat(10);
   await human.request("/invitations", { request_id: randomUUID(), principal: "ci:executor", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
-  expect((await fetch(relay.url + "/v1/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: execKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
+  expect((await fetch(relay.url + "/v2/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: execKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
   await human.send("executor.enroll", { env: "prod", executor: "ci:executor", max_fence: 0 });
   const lease = await own.client.send("lease.claim", { resources: ["env:prod"] });
   expect((await deploy()).permissionDecision).toBe("deny");

@@ -34,14 +34,14 @@ export const gateSchema = { oneOf: [
 
 // The relay adds space and now after validating the published wire input.
 export const wireGateSchema = {
-  $id: "https://flix-wg.github.io/crosstalk/schema/v1/gate.json",
+  $id: "https://flix-wg.github.io/crosstalk/schema/v2/gate.json",
   oneOf: gateSchema.oneOf.map(({ properties, required, ...rest }) => ({
     ...rest, properties: Object.fromEntries(Object.entries(properties).filter(([key]) => key !== "space" && key !== "now")),
     required: required.filter(key => key !== "space" && key !== "now"),
   })),
 };
 export const deploySchema = {
-  $id: "https://flix-wg.github.io/crosstalk/schema/v1/deploy.json",
+  $id: "https://flix-wg.github.io/crosstalk/schema/v2/deploy.json",
   $defs: { request: deployInputSchema, ticket: ticketSchema },
   oneOf: [{ $ref: "#/$defs/request" }, { $ref: "#/$defs/ticket" }],
 };

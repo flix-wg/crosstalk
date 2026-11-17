@@ -1,16 +1,16 @@
-# crosstalk protocol, version 1.0
+# crosstalk protocol, version 2.0
 
 | | |
 |---|---|
-| Protocol version | 1.0 |
-| Status | Draft for publication |
+| Protocol version | 2.0 |
+| Status | Published |
 | Date | 2026-11-17 |
-| Schemas | `https://flix-wg.github.io/crosstalk/schema/v1/event.json`, `https://flix-wg.github.io/crosstalk/schema/v1/command.json` (Appendix A) |
+| Schemas | `https://flix-wg.github.io/crosstalk/schema/v2/event.json`, `https://flix-wg.github.io/crosstalk/schema/v2/command.json` (Appendix A) |
 | Reference implementation | [`crosstalk`](https://github.com/flix-wg/crosstalk) (CLI `xt`), MIT |
 
 crosstalk lets coding agents of different developers, running in different AI harnesses, work in one repository without stepping on each other. Agents and humans publish presence and intents, take exclusive leases with fencing tokens, reserve sequence numbers, exchange messages, ask humans for decisions, mark branches ready, and pass merge and deploy gates. A relay orders every change into one hash-chained log per repository, which can be exported to git for audit.
 
-This document has two parts. **Part I (sections 1–16)** is normative: a relay, client, CI hook or deploy executor built from it interoperates with any other conforming implementation. **Part II (sections 17–20)** describes harness bindings and is non-normative except where it says otherwise.
+Optional normative [companion specifications](companions/) define deploy execution, audit export and restore. This document has two parts. **Part I (sections 1–16)** is normative: a relay, client or CI hook built from it interoperates with any other conforming implementation. **Part II (sections 17–20)** describes harness bindings and is non-normative except where it says otherwise.
 
 ---
 
@@ -18,7 +18,7 @@ This document has two parts. **Part I (sections 1–16)** is normative: a relay,
 
 ## 1. Status and version
 
-This document specifies **crosstalk protocol 1.0**. The protocol version is independent of any package or binary version: the reference implementation may ship as 0.x or 3.x while speaking protocol 1.0. Section 15 defines how versions are discovered, negotiated, extended and retired. Section 16 is the protocol changelog.
+This document specifies **crosstalk protocol 2.0**. The protocol version is independent of any package or binary version: the reference implementation may ship as 0.x or 3.x while speaking protocol 2.0. Section 15 defines how versions are discovered, negotiated, extended and retired. Section 16 is the protocol changelog.
 
 ## 2. Conventions and terminology
 
@@ -28,7 +28,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 |---|---|
 | **Relay** | The server that authenticates callers, applies commands, orders events and evaluates gates. One relay hosts one or more spaces. |
 | **Space** | One repository's coordination state, identified by a UUID. |
-| **Epoch** | A UUID naming one continuous history of a space. A new epoch starts only after a backup restore (13.4). |
+| **Epoch** | A UUID naming one continuous history of a space. The optional restore companion defines new epochs. |
 | **Principal** | An enrolled actor: `human:<handle>` or `ci:<name>`. |
 | **Credential** | A bearer secret bound to a principal: agent key, human key or ci key. |
 | **Session** | One conversation or job of a principal, with its own bearer token. |
@@ -62,13 +62,14 @@ A conforming implementation claims one or more of the classes below and MUST imp
 
 | Class | MUST implement |
 |---|---|
-| **Relay** | Sections 5–13 in full: authentication (6.2), every endpoint of 6.4, every command of section 7 with its authorization and effects, event envelope, hash chain and ordering (8), gates (9), ask and human-authority rules (10), signatures (11), audit attestation (12.3), failure behaviour (13), version discovery and headers (15.2). |
+| **Relay** | Core requirements of sections 5–13: authentication (6.2), every core endpoint of 6.4, every core command of section 7 with its authorization and effects, event envelope, hash chain and ordering (8), gates (9), ask and human-authority rules (10), signatures (11), failure behaviour (13), version discovery and headers (15.2). |
 | **Agent client** (hooks, MCP bridge, CLI in agent mode) | Version negotiation (15.2); relay key pinning (11.4); sessions and heartbeats (5.3); commands with stable `request_id`, retries and receipt lookup (6.5); event and board consumption with the receiver rules of 15.4; rendering of peer content per 14.1; outgoing secret scan (14.4); fail-open/fail-closed rules (13.2). It MUST NOT hold or load a human key. |
 | **Human client** (interactive CLI) | Everything an agent client implements that it uses, plus the human-key commands of 10.3 gated on an interactive terminal (10.4). |
-| **CI / remote hook** (`ci:remote` on the shared git server) | Merge source resolution and the merge gate in `pre-receive` (9.2), `ref.advance` reporting in `post-receive` (5.12), fail-closed behaviour when the relay is unreachable (13.2), protection of `refs/crosstalk/**` (12.4). |
+| **CI / remote hook** (`ci:remote` on the shared git server) | Merge source resolution and the merge gate in `pre-receive` (9.2), `ref.advance` reporting in `post-receive` (5.12), fail-closed behaviour when the relay is unreachable (13.2). |
 | **CI / required check** | Pinned relay authentication with a direct CI key; explicit workflow connection settings, never repository config; source/head evaluation plus draft ancestry (9.2); fail closed on relay errors. |
-| **Deploy executor** (`ci:<name>` on the deploy target) | Install (9.5.2), promote with tickets and authorizations (9.4, 9.5.3), serialized operations, monotonic `exec_seq`, crash recovery and reconcile (9.5.4), idempotent reports (9.5.5). |
-| **Audit exporter / verifier** | Export line format and both hash chains (12), head signature verification (11.3), attest-then-publish order (12.3). |
+| **Deploy executor / relay deployment support** (optional) | [Deploy-executor companion](companions/deploy-executor.md). |
+| **Audit exporter / verifier / relay audit support** (optional) | [Audit-export companion](companions/audit-export.md), including remote-hook ref protection when claimed. |
+| **Restore-capable relay** (optional) | [Restore companion](companions/restore.md). |
 
 A single program MAY claim several classes (the reference `xt` binary claims all of them), but it MUST keep the credentials of each class separate as section 14.3 requires.
 
@@ -78,7 +79,7 @@ A single program MAY claim several classes (the reference `xt` binary claims all
 
 A space is identified by a UUID chosen at creation and pinned in the repository's configuration file. A space MUST NOT be derived from a remote URL. Each space has: the current `epoch`, the highest committed `seq`, the hash of the last event, a fence counter, a `frozen` flag, a policy (5.12) and a reachability set (5.12).
 
-`seq` starts at 1 for the first event of a space and is gap-free within the space. It is not reset when a new epoch starts; the epoch tells clients that history before the restore point may differ from what they cached (13.4).
+`seq` starts at 1 for the first event of a space and is gap-free within the space. A relay without the restore companion never changes epoch.
 
 ### 5.2 Principals, credentials and roles
 
@@ -175,7 +176,7 @@ A reservation takes the next value of a named sequence (`seq:<name>`): `value = 
 
 ### 5.8 Messages and inbox
 
-A message has `message_id`, `to` (1–16 of `human:<h>`, `ci:<n>`, `session:<uuid>` or `all`), `context_id` (thread UUID) and `parts` (1–8 parts, each `{kind: "text", text}` with 1–4096 characters or `{kind: "data", data: {…}}`). Part field names follow A2A 1.0 message parts. Addressing is routing, not confidentiality: every member of a space can read every message on the board.
+A message has `message_id`, `to` (1–16 of `human:<h>`, `ci:<n>`, `session:<uuid>` or `all`), `context_id` (thread UUID) and `parts` (1–8 parts, each `{kind: "text", text}` with 1–4096 characters or `{kind: "data", data: {…}}`). Addressing is routing, not confidentiality: every member of a space can read every message on the board.
 
 The inbox of a session holds messages addressed to its principal, to `all`, or to the session itself, after the session's cursor, plus open asks addressed to its principal. Cursors are per session, except that all `cli` sessions of a principal share one cursor so a person's terminal shows one inbox. This is a convenience, not authority: the agents of that principal already receive messages addressed to it. `inbox.ack` advances a cursor monotonically and never beyond the current `seq`.
 
@@ -183,31 +184,19 @@ The inbox of a session holds messages addressed to its principal, to `all`, or t
 
 An **ask** is a question to exactly one human: `ask_id`, `rev`, `kind` (`question` or `approval`), `to`, `question` (1–4096 characters), optional `options` (≤ 8 strings of ≤ 80 characters), `resources` (≤ 16 keys), `blocks` (≤ 8 scopes `merge:branch:<name>` or `deploy:env:<name>`, approval asks only), `bound_head`, `bound_artifact`, `state` and optional `deadline`.
 
-```
-open ──answer approve / option──► answered ──► decision (approval asks)
-  │──answer reject──────────────► rejected ──► decision, verdict reject (approval asks)
-  │──cancel (asker or admin)────► canceled
-  │──withdraw (addressed human or admin) ► withdrawn
-  └──deadline passes────────────► expired      (never an approval)
-answered (approval) ──reaffirm (addressed human)──► answered, new decision at a new revision
-```
+An ask has exactly three states: `open`, `answered`, `withdrawn`. Answering an open ask sets it to `answered`, including an approval rejection. The addressed human MAY answer an `answered` approval again; every answer creates a new decision for the same ask. Questions MUST be answered only once. Withdrawal ends the ask; an override is a separate decision and never removes a requirement.
 
-An **answer** records the human's `choice` and optional `text`. A **decision** is created atomically with the answer of an approval ask, or by an override: `decision_id`, `source` (`{kind: ask|override, id}`), `verdict` (`approve` or `reject`), `scope` (the ask's `blocks`, omitted when empty), `bound_head`, `bound_artifact`, `rationale`, `decided_by`. Gates read decisions, never text. Ask state ↔ A2A task state: `open` ↔ `input-required`, `answered` ↔ `completed`, `rejected` ↔ `rejected`, `canceled` ↔ `canceled`, `expired` ↔ `failed`.
+`deadline` is informational: passing it MUST NOT change state or revision. Clients MAY render an ask as overdue without adding wire fields.
+
+An **answer** records the human's `choice` and optional `text`. A **decision** is created atomically with the answer of an approval ask, or by an override: `decision_id`, `source` (`{kind: ask|override, id}`), `verdict` (`approve` or `reject`), `scope` (the ask's `blocks`, omitted when empty), `bound_head`, `bound_artifact`, `rationale`, `decided_by`. Gates read decisions, never text.
 
 ### 5.10 Branch status
 
-`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer. The state value `cleared` is reserved for relays to mark a status as removed; gates treat it as "no status".
+`branch_status` on a branch: `state` (`wip`, `draft`, `ready`), `head` (the exact oid the state applies to), `owner`, optional `note` (≤ 280) and `pending` (≤ 10 items of ≤ 140 characters), and `rev`. The first principal to set a status owns the branch; only the owner or an admin changes the state or transfers ownership, except that a different principal MAY reclaim the name and become owner when the current owner is revoked, or the current status is `ready` and its head is in relay reachability for any protected branch. Otherwise `not_authorized` names the owner and directs the caller to ask them or an admin to transfer.
 
-### 5.11 Deployment records and live state
+### 5.11 Optional deployment records
 
-A deployment record is one executor attempt or one adoption: `env`, `sha` attempted, `artifact` digest attempted, `fence`, `op` (UUID of the executor operation), `exec_seq`, `outcome` (`promoted`, `failed`, `reconciled`, `adopted`) and `live_after` (the digest the target reported as live afterwards, or `null` if unknown). Records come only from executor reports and human adoption.
-
-**Live state** per env is derived from the record with the highest `exec_seq` (ties broken by higher `seq`):
-
-- `live_artifact` = that record's `live_after` (`null` = unknown);
-- `live_sha` = its `sha` if `live_after = artifact`; otherwise the `sha` of the newest earlier record whose `artifact = live_after`; otherwise unknown.
-
-Adoption records have `exec_seq = 0` and `op = null`. Lease expiry never means "env is empty".
+Defined by the [deploy-executor companion](companions/deploy-executor.md).
 
 ### 5.12 Policy and reachability
 
@@ -219,7 +208,7 @@ Reachability is the only git fact the relay uses: a set of `(ref, sha)` pairs su
 
 ### 6.1 Base URL, encoding and limits
 
-- Space endpoints live under `{relay}/v1/spaces/{space}`; `{space}` is the space UUID, percent-encoded. Major version 1 is the `/v1` path prefix (15.1).
+- Space endpoints live under `{relay}/v2/spaces/{space}`; `{space}` is the space UUID, percent-encoded. Major version 2 is the `/v2` path prefix (15.1).
 - HTTPS is REQUIRED except for loopback hosts (`localhost`, `127.0.0.1`, `[::1]`). Clients MUST NOT follow redirects.
 - Requests with a body use `Content-Type: application/json`, UTF-8, at most **16 KiB**. Bodies MUST be a JSON object; invalid UTF-8, duplicate keys, non-JSON numbers or non-object bodies are `invalid_request`. GET requests carry no body.
 - Responses are `application/json; charset=utf-8` with `Cache-Control: no-store`.
@@ -242,12 +231,12 @@ Every response, success or error, is one JSON object carrying the space's curren
 
 ### 6.4 Endpoints
 
-Paths below the space prefix unless they start with `/v1/` or `/.well-known/`.
+Paths below the space prefix unless they start with `/v2/` or `/.well-known/`.
 
 | Method and path | Caller | Purpose |
 |---|---|---|
 | `GET /.well-known/crosstalk` | anyone | Version discovery (15.2). No authentication. |
-| `POST /v1/hello` | anyone | Relay key proof: `{nonce}` (32–128 chars of `[A-Za-z0-9_-]`) → `{public_key, signature}` (11.4). Rate-limited per client address. |
+| `POST /v2/hello` | anyone | Relay key proof: `{nonce}` (32–128 chars of `[A-Za-z0-9_-]`) → `{public_key, signature}` (11.4). Rate-limited per client address. |
 | `POST /enroll` | invitation code as bearer | Redeem an invitation: `{agentKey, humanKey}` (distinct, ≥ 32 chars; a ci principal uses only `agentKey`) → `{enrolled: true}`. Repeating with the same keys is idempotent; other keys are `not_authorized`. |
 | `POST /invitations` | human admin key | `{request_id, principal, role, code_hash, device?}`; `code_hash` is lowercase hex SHA-256 of the invitation code. Invitations expire after 24 h. |
 | `POST /sessions` | agent key, ci key | Open a session (6.4.1). |
@@ -259,18 +248,11 @@ Paths below the space prefix unless they start with `/v1/` or `/.well-known/`.
 | `GET /board` | session, ci key, human admin key | Snapshot (6.4.2). |
 | `GET /reservations` | session, ci key, human admin key | Caller principal’s reservations: array of `{sequence, value, abandoned}`; `abandoned` is 0 or 1. Includes reservations held by its other sessions. |
 | `GET /inbox` | session | `{cursor, messages: [{seq, body}], asks}` (5.8). |
-| `GET /asks` | any | All asks of the space, with expired ones shown as `expired`. |
+| `GET /asks` | any | All asks of the space, with their stored states. |
 | `GET /events?after=&limit=&wait_s=` | session, ci key, human admin key | Committed events (6.6). |
 | `POST /check` | session, ci key, human admin key | Gate evaluation, read-only (9). |
-| `POST /deploy/ticket` | session holding the env lease | Signed deploy ticket (9.4). |
-| `POST /executor/install` | enrolled executor's ci key, direct | Validate (`dry_run: true`) or acknowledge a pending `env:` lease (9.5.2). |
-| `POST /deploy/authorize` | enrolled executor's ci key, direct | Signed 30 s authorization for a ticket (9.4). |
-| `POST /deploy/report` | enrolled executor's ci key, direct | Deployment record; body = `deployment.record` args; the relay uses `op` as `request_id`. |
-| `GET /audit/head` | session, ci key, human admin key | `{head, exported_seq, lag}`. |
-| `POST /audit/attest` | audit exporter ci key or human admin key | `{through_seq, xhash}` → signed audit head (12.3). |
-| `POST /audit/published` | same | As attest, and advances the published cursor. |
 
-Space creation and the first admin are provisioned out of band (the reference relay offers `POST /v1/init` with an operator key). That endpoint is implementation-specific and not part of the protocol.
+Space creation and the first admin are provisioned out of band (the reference relay offers `POST /v2/init` with an operator key). That endpoint is implementation-specific and not part of the protocol.
 
 #### 6.4.1 Opening a session
 
@@ -279,7 +261,7 @@ Result: `{session_id, token, expires_at, heartbeat_s: 30, cursor}` where `cursor
 
 #### 6.4.2 Board
 
-The board is a read-only snapshot as of the envelope's `seq`. It contains at least: `frozen`; `coordination` (`intents` active, `branches`, `policy`); `presence`; `leases` (active ones plus recent tombstones); `asks` (open asks and approval asks that still form requirements, plus recent finished ones); `messages`, `decisions`, `deployments` (last 24 h); `live` (live state per env); `reservations`; `audit`; and `more`, a map from collection name to `true` when entries were omitted. History collections hold at most 100 entries. Relevance sorting is a client concern.
+The board is a read-only snapshot as of the envelope's `seq`. It contains at least: `frozen`; `coordination` (`intents` active, `branches`, `policy`); `presence`; `leases` (active ones plus recent tombstones); `asks` (open asks and approval asks that still form requirements, plus recent finished ones); `messages`, `decisions` (last 24 h); `reservations`; companion fields `deployments` (last 24 h), `live` and `audit` when implemented; and `more`, a map from collection name to `true` when entries were omitted. History collections hold at most 100 entries. Relevance sorting is a client concern.
 
 ### 6.5 Commands, receipts and idempotency
 
@@ -290,7 +272,7 @@ Request body (schema `command.json`):
 ```
 
 - `request_id` is chosen by the client. A client MUST reuse it for every retry of the same command and MUST NOT reuse it for a different command.
-- `expect_rev` is an optional compare-and-swap on the target's `rev`. It is REQUIRED for `ask.answer`, `ask.cancel` and `ask.withdraw`.
+- `expect_rev` is an optional compare-and-swap on the target's `rev`. It is REQUIRED for `ask.answer` and `ask.withdraw`.
 - The relay computes `payload_hash = sha256(JCS(command))` over the whole command object.
 - Receipts are keyed by `(space, principal, session, request_id)`; for direct requests the session is absent.
 - A command that reaches its handler produces a **durable outcome**: success or a domain error (`conflict`, `stale_revision`, `not_found`, `not_authorized` decided by the handler, …). The relay stores the response with the payload hash in the same transaction as its effects and events (transactional outbox). A repeat with the same key and payload hash MUST return the stored response unchanged, even if state has changed since. A repeat with a different payload hash MUST return `idempotency_mismatch`.
@@ -319,7 +301,7 @@ Clients MUST deduplicate events by `id`, order them by `seq`, and SHOULD verify 
 | `resync` | 409 | Cursor predates retained history, or history needed for attestation is incomplete. | Reload the board. |
 | `payload_too_large` | 413 | Body over 16 KiB. | Split or shorten. |
 | `idempotency_mismatch` | 422 | `request_id` reused with another payload. | Use a fresh `request_id` for a new command. |
-| `frozen` | 423 | The space is frozen after a restore (13.4). | Wait for an admin. |
+| `frozen` | 423 | The space is frozen by an admin or the restore companion. | Wait for an admin. |
 | `rate_limited` | 429 | Over the caller's rate limit; `Retry-After` header in seconds. | Retry once if `Retry-After` fits the remaining budget. |
 | `internal_error` | 500 | Relay failure. The response MUST NOT leak internals. | Retry with the same `request_id`. |
 
@@ -327,11 +309,11 @@ Clients MUST deduplicate events by `id`, order them by `seq`, and SHOULD verify 
 
 ### 6.8 Rate limits and timeouts
 
-Relays MUST rate-limit per session (per credential for direct requests) and per client address for `/v1/hello`. The reference defaults are a token bucket of 10 requests burst and 10 per second. Relays MUST time out request reads after 10 s. Clients SHOULD time out tool and CLI requests after 10 s, retry at most 3 times with jitter and the same `request_id`, and retry `rate_limited` once.
+Relays MUST rate-limit per session (per credential for direct requests) and per client address for `/v2/hello`. The reference defaults are a token bucket of 10 requests burst and 10 per second. Relays MUST time out request reads after 10 s. Clients SHOULD time out tool and CLI requests after 10 s, retry at most 3 times with jitter and the same `request_id`, and retry `rate_limited` once.
 
 ## 7. Commands
 
-Schema: `https://flix-wg.github.io/crosstalk/schema/v1/command.json`. The relay derives actor, timestamps, revisions, fences and hashes; clients never send them. Unknown fields in `args` are `invalid_request`. "Session" below means any session of the right kind; "human key" means a direct human-key request; "admin" means a direct human-key request of an `admin` principal.
+Schema: `https://flix-wg.github.io/crosstalk/schema/v2/command.json`. The relay derives actor, timestamps, revisions, fences and hashes; clients never send them. Unknown fields in `args` are `invalid_request`. "Session" below means any session of the right kind; "human key" means a direct human-key request; "admin" means a direct human-key request of an `admin` principal.
 
 ### 7.1 Coordination
 
@@ -352,19 +334,13 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v1/command.json`. The relay 
 | Op | Allowed for | Args | Effect and events | Notable errors |
 |---|---|---|---|---|
 | `ask.open` | session, human key, ci key | **`kind`**, **`to`** (enrolled active human), **`question`**, `options`, `resources`, `blocks` (approval only), `bound_head`, `bound_artifact`, `deadline` (future) | Event `ask` (`open`, `rev 1`). An approval ask with `blocks` creates one requirement per ask (9.1). The relay MUST reject a blocking approval ask without `bound_head`, or a `deploy:` scope without `bound_artifact`, with `invalid_request`. | `not_found`, `invalid_request` |
-| `ask.cancel` | the asking principal, or admin | **`ask_id`**; `expect_rev` required | Open ask → `canceled`. Event `ask`. | `stale_revision` |
-| `ask.answer` | **the addressed human, human key only** | **`ask_id`**, **`choice`**, `text`, `reaffirm`, `bound_head`, `bound_artifact`; `expect_rev` required | Approval: `choice` is `approve` or `reject`. Question: `choice` is one of `options` when options exist. One transaction: event `ask` (`answered` or, for an approval reject, `rejected`), event `answer`, for approval asks event `decision` bound to the ask's `bound_head`/`bound_artifact`, and a `message` to the asker in thread `ask_id`. `reaffirm: true` on an answered approval ask requires `choice: approve` and a new `bound_head` (and `bound_artifact` for deploy scopes), updates the ask's bound revision and creates a new decision for the same `ask_id`. | `not_authorized`, `stale_revision`, `invalid_request` |
-| `ask.withdraw` | the addressed human or admin, human key | **`ask_id`**, `reason`; `expect_rev` required | Ask → `withdrawn` (ends a requirement). Events `ask` and `admin`/`requirement_withdrawn`. | `stale_revision` |
+| `ask.answer` | **the addressed human, human key only** | **`ask_id`**, **`choice`**, `text`, `bound_head`, `bound_artifact`; `expect_rev` required | Open ask → `answered`; answered approvals MAY be answered again. Approval choice MUST be `approve` or `reject`; question choice MUST be an option when options exist. Atomically emit `ask`, `answer`, an approval `decision` at the ask's bound revision, and a `message` to the asker in thread `ask_id`. Supplying bound fields rebinds the ask and requires an approval with `choice: approve` and a non-null `bound_head`; deploy scopes additionally require `bound_artifact` in the args. Omitted bound fields retain the existing binding. | `not_authorized`, `stale_revision`, `invalid_request` |
+| `ask.withdraw` | addressed human or admin with a human key; asking principal only when `blocks` is absent or empty | **`ask_id`**, `reason`; `expect_rev` required | Any non-withdrawn ask → `withdrawn`. Events `ask` and `admin`/`requirement_withdrawn`. An agent MUST NOT withdraw a blocking ask. | `not_authorized`, `stale_revision` |
 | `override.record` | human key | **`scope`** (`merge:branch:<b>` or `merge:target:<t>`), **`bound_head`**, **`reason`** (1–280) | Event `decision` (`source.kind: override`, `verdict: approve`), a `message` to the branch owner, event `admin`/`override_recorded`. An override never satisfies a requirement. | `not_authorized`, `invalid_request` |
 
-### 7.3 Deploy
+### 7.3 Optional deploy commands
 
-| Op | Allowed for | Args | Effect and events |
-|---|---|---|---|
-| `deployment.record` | the env's enrolled executor, ci key direct (normally via `/deploy/report`) | **all of** `env`, `sha`, `artifact`, `fence`, `op`, `exec_seq` (≥ 1), `live_after`, `outcome` (`promoted`/`failed`/`reconciled`) | Event `deployment`. `promoted` requires `live_after = artifact`. A repeat for the same `op` with identical content returns the stored record; different content is `idempotency_mismatch`; an `exec_seq` already used by another op is `conflict`. |
-| `env.adopt` | human key | **`env`**, **`sha`** (non-null), **`artifact`** | Record with `outcome: adopted`, `exec_seq: 0`, `op: null`, `live_after = artifact`. Allowed only before the first promote of that env (`conflict` afterwards). |
-| `executor.enroll` | admin | **`env`**, **`executor`** (active `ci:` principal), **`max_fence`** | Revoke active leases on `env:<env>`; set `fence_counter = max(fence_counter, max_fence) + 1`; pin the executor to the current epoch. Event `admin`/`executor_enrolled`. Result `{env, epoch, fence_floor}`. |
-| `executor.reconcile` | human key | **`env`** | Records that a human reconciled the executor; the executor reports `reconciled` records itself. |
+Defined by the [deploy-executor companion](companions/deploy-executor.md).
 
 ### 7.4 Administration and git
 
@@ -383,11 +359,11 @@ Schema: `https://flix-wg.github.io/crosstalk/schema/v1/command.json`. The relay 
 
 ### 8.1 Envelope
 
-Schema: `https://flix-wg.github.io/crosstalk/schema/v1/event.json`. Every event has:
+Schema: `https://flix-wg.github.io/crosstalk/schema/v2/event.json`. Every event has:
 
 | Field | Meaning |
 |---|---|
-| `v` | Protocol major version, `1`. |
+| `v` | Protocol major version, `2`. |
 | `space`, `epoch` | Space and the epoch the event was written in. |
 | `seq` | Gap-free position in the space's log, starting at 1. |
 | `id` | Event UUID. |
@@ -406,6 +382,8 @@ Free-text fields (`summary`, `note`, `question`, answer `text`, `rationale`, mes
 
 The relay MUST commit an event, its state change and the command's receipt in one transaction, assign `seq` in commit order, and never rewrite or delete a committed event within an epoch. The relay MUST validate every event it writes against the event schema and MUST enforce `format` (UUID, date-time), not only annotate it.
 
+Interoperability test vectors for this chain are listed in Appendix C.
+
 ### 8.3 Body types and producing commands
 
 | `body.type` | Produced by |
@@ -415,33 +393,32 @@ The relay MUST commit an event, its state change and the command's receipt in on
 | `lease` (`op` = `acquire`, `install`, `release`, `expire`, `revoke`) | `lease.claim` (acquire or steal; `supersedes` set on a steal), `/executor/install` (install), `lease.release`, `session.release` and session expiry (release), relay expiry (expire), `lease.revoke`, `principal.revoke`, `executor.enroll`, restore (revoke) |
 | `reservation` | `reserve` (take and abandon) |
 | `message` | `message.send`; also generated by `ask.answer` and `override.record` |
-| `ask` | `ask.open`, `ask.cancel`, `ask.answer`, `ask.withdraw`, relay expiry |
+| `ask` | `ask.open`, `ask.answer`, `ask.withdraw` |
 | `answer` | `ask.answer` |
 | `decision` | `ask.answer` on approval asks, `override.record` |
-| `deployment` | `deployment.record`, `env.adopt` |
-| `admin` (`action`) | `principal.invite` and bootstrap (`principal_enrolled`), `principal.revoke` (`principal_revoked`), restore (`epoch_started`, `gates_frozen`), `space.freeze`/`space.unfreeze` (`gates_frozen`/`gates_unfrozen`), `ask.withdraw` (`requirement_withdrawn`), `override.record` (`override_recorded`), `executor.enroll` (`executor_enrolled`), `policy.set` (`policy_set`), `ref.seed` (`ref_seeded`). `lease_installed` is reserved. |
+| `deployment` | Deploy-executor companion: `deployment.record`, `env.adopt` |
+| `admin` (`action`) | `principal.invite` and bootstrap (`principal_enrolled`), `principal.revoke` (`principal_revoked`), restore companion (`epoch_started`, `gates_frozen`), `space.freeze`/`space.unfreeze` (`gates_frozen`/`gates_unfrozen`), `ask.withdraw` (`requirement_withdrawn`), `override.record` (`override_recorded`), deploy-executor companion `executor.enroll` (`executor_enrolled`), `policy.set` (`policy_set`), `ref.seed` (`ref_seeded`). `lease_installed` is reserved. |
 
 Not events: presence, heartbeats, lease renewals, inbox cursors, reachability from `ref.advance`.
 
 ## 9. Gates
 
-`check` returns `{verdict: pass|warn|block, reasons: [string], contacts: [principal]}`. Gates are pure functions over a read-only snapshot (branch status, leases, asks, decisions, live state, policy, reachability, frozen flag) and an explicit time. They never read free text. The relay MUST evaluate the same function for `/check`, for the remote hook and for deploy authorization. `/check` on a frozen space returns the error `frozen`.
+`check` returns `{verdict: pass|warn|block, reasons: [string], contacts: [principal]}`. Gates are pure functions over a read-only snapshot (branch status, leases, asks, decisions, optional live state, policy, reachability, frozen flag) and an explicit time. They never read free text. The relay MUST evaluate the same function for `/check`, for the remote hook and for deploy authorization. `/check` on a frozen space returns the error `frozen`.
 
 Check input (schema: gate input, Appendix A): `{kind: "merge", source_branch, source_head, target_branch}`, or `{kind: "merge", source_head, target_branch, unknown_source: true}`, or `{kind: "deploy", env, sha, artifact, lease_id, fence, holder}`. The relay supplies `space` and `now`.
 
 ### 9.1 Requirements
 
-- An approval ask with `blocks: [scope, …]` creates exactly one requirement per scope whose identity is the `ask_id`. Several asks may block the same scope; each must be satisfied separately.
-- A requirement is **satisfied** only by a decision with `source.kind = ask`, `source.id = ask_id`, `verdict = approve`, `decided_by` = the ask's `to`, the ask in state `answered`, and bound to the exact revision being gated: `bound_head = source_head` for merges; `bound_head = sha` **and** `bound_artifact = artifact` for deploys.
-- It stays unsatisfied while the ask is open, and after it expires, is canceled or is rejected.
-- It ends only by approval at the gated revision or by withdrawal. A new ask is a new requirement; the old one is withdrawn explicitly.
+- Every non-withdrawn approval ask with `blocks: [scope, …]` creates one requirement per scope identified by its `ask_id`. Several asks on the same scope MUST each be satisfied.
+- A requirement is satisfied iff the ask is `answered` and the **newest** decision (greatest event `seq`) with `source: {kind: ask, id: ask_id}` is `approve`, `decided_by` equals the ask's `to`, and is bound to the gated revision: `bound_head = source_head` for merges; `bound_head = sha` and `bound_artifact = artifact` for deploys.
+- A later reject re-blocks; a later approve at a new revision re-admits only that revision. Open asks remain unsatisfied regardless of deadline. Withdrawal removes the requirement. Overrides never satisfy requirements.
 
 ### 9.2 Merge gate
 
 Rules per source, in order; the first `block` wins:
 
 1. Any unsatisfied requirement on `merge:branch:<source>` → **block**, contacts = the addressed humans.
-2. Branch status of the source: `ready` at exactly `source_head` → pass; `wip` or `draft` → **block** naming owner and pending items; `ready` at another head → policy `stale_ready`; no status or `cleared` → policy `unknown`.
+2. Branch status of the source: `ready` at exactly `source_head` → pass; `wip` or `draft` → **block** naming owner and pending items; `ready` at another head → policy `stale_ready`; no status → policy `unknown`.
 3. An override decision with scope `merge:branch:<source>` bound to `source_head` turns a rule-2 block into pass. It never affects rule 1.
 
 For an unknown source the verdict is policy `unknown_source` (default block), unless requirements block first, and an override with scope `merge:target:<target>` bound to the pushed `new` admits exactly that push.
@@ -459,44 +436,14 @@ Every source is evaluated; any `block` rejects the whole push. Non-fast-forward 
 
 ### 9.3 Deploy gate
 
-1. The lease `lease_id` covers exactly `env:<env>`, is `held` (installed), unexpired, carries `fence`, and is held by session `holder` → else **block**.
+1. The lease `lease_id` covers exactly `env:<env>`, is `held`, unexpired, carries `fence`, and is held by session `holder` → else **block**.
 2. Any unsatisfied requirement on `deploy:env:<env>` for this `sha` and `artifact` → **block**.
 3. If policy `envs.<env>.require_on` is set, `sha` MUST be in reachability for that ref → else **block**.
-4. No live state for the env yet → **block** until a human runs `env.adopt`.
-5. Space frozen → **block** (`frozen`).
+4. Space frozen → **block** (`frozen`).
 
-### 9.4 Deploy tickets and authorizations
+### 9.4–9.5 Optional deploy execution
 
-1. **Ticket.** The lease holder's session calls `POST /deploy/ticket` with `{env, sha, artifact, lease_id, fence, op}` (`op` is a fresh UUID naming the deploy operation). The relay checks that this session holds the installed lease with this fence and that the space is not frozen, and returns `{payload, signature}` with payload `{env, sha, artifact, lease_id, fence, op, kind: "deploy_ticket", space, epoch, holder (session uuid), principal, expires_at}`. A ticket is valid for 10 minutes and carries no reusable credential.
-2. **Authorization.** The executor calls `POST /deploy/authorize` with `{ticket}`. The relay verifies the ticket signature, space, epoch and expiry, that the caller is the env's executor enrolled in this epoch, that the holder session is still open and belongs to the ticket's principal, and evaluates the deploy gate in the same transaction. On pass it returns `{payload, signature}` with payload `{kind: "deploy_authorization", space, epoch, env, sha, artifact, lease_id, fence, op, holder, principal, exec_allowed_until}`, valid 30 s. On block it returns an error (`frozen`, or `conflict` with the gate result in `details`).
-
-`expires_at` and `exec_allowed_until` are integers in epoch milliseconds (an exception to the RFC 3339 rule). Both payloads are signed as in 11.2.
-
-### 9.5 Deploy executor
-
-The executor runs on the deploy target and is the only component that changes what is live. It runs only operator-configured commands: a `promote` command that takes an artifact digest and makes exactly that digest live, and a `live` command that prints the digest live now. Callers choose which artifact, never how to deploy.
-
-#### 9.5.1 State
-
-The executor MUST persist, crash-safely (write, fsync, rename, fsync directory): `epoch`, `max_fence`, `installed {epoch, lease_id, fence}`, `exec_seq`, `needs_reconcile`, and one record per operation: `started`, then one terminal record `{op, fingerprint, exec_seq, lease_id, fence, sha, artifact, outcome, live_after, reported}`, where `fingerprint = sha256(JCS({env, sha, artifact, lease_id, fence, op}))`. All operations on one env MUST be serialized by one exclusive lock that stays held until every child process of the operation has exited. No process may write executor state without holding it.
-
-#### 9.5.2 Install
-
-Under the lock (if the lock is busy beyond `timeout + 10 s`, refuse, write nothing, and report busy): refuse if `needs_reconcile` or any operation is `started`; if `installed` already equals `{epoch, lease_id, fence}` skip to acknowledgment; otherwise call `/executor/install` with `dry_run: true`, then persist `max_fence = fence` and `installed`, then call it with `dry_run: false`. The relay accepts only if the epoch is current, the lease is `pending` (or already `held` for a repeated acknowledgment), unexpired, covers exactly this env, carries this fence, and `fence > max_fence`.
-
-#### 9.5.3 Promote
-
-Under the lock: an existing record for `op` with another fingerprint → refuse (`idempotency_mismatch`); a terminal one → return it (and re-queue its report); a `started` one → set `needs_reconcile` and refuse. Refuse if `needs_reconcile`, if `fence ≠ installed.fence`, or if the relay epoch differs from the pinned one. Obtain and verify the authorization (signature with the pinned relay key, every field equal to the ticket, unexpired on the executor's monotonic clock). Allocate `n = max(exec_seq, highest exec_seq in records) + 1`, persist `exec_seq = n` first, then the `started` record. Run `promote <artifact>` with a timeout, then `live`. Outcome `promoted` only if `promote` exited 0 and `live` printed exactly `artifact`; otherwise `failed`. If `live` fails or prints no digest, `live_after = null` and `needs_reconcile` is set.
-
-#### 9.5.4 Recovery
-
-A `started` record means "unknown whether it switched". The executor MUST refuse everything except status until a human reconciles: take the lock (terminating stale holders only after human confirmation), run `live`, write a terminal `reconciled` record for every `started` operation, set `exec_seq` to the highest recorded value, clear `needs_reconcile`.
-
-#### 9.5.5 Reports
-
-Every terminal record with `reported: false` MUST be sent to `/deploy/report` and marked reported only after the relay's receipt. Duplicates are harmless; the relay deduplicates by `op`.
-
-**What this enforces.** A stale holder cannot promote, because its fence no longer equals `installed.fence` once a successor installs, and install cannot run while an operation is in flight. A ticket for artifact A cannot deploy B. **Not covered:** a `promote` command that ignores its argument, and deploy paths that bypass the executor. There is no break-glass in 1.0: while the relay is down, executor deploys are impossible; operators deploy by hand and reconcile afterwards.
+Tickets, authorizations and executor behavior are defined by the [deploy-executor companion](companions/deploy-executor.md).
 
 ## 10. Asks and human authority
 
@@ -510,7 +457,9 @@ Only the addressed human, using a **direct human-key request**. The relay MUST r
 
 ### 10.3 Human-key operations
 
-`ask.answer`, `ask.withdraw`, `override.record`, `env.adopt`, `executor.reconcile`, and every admin op (`principal.*`, `lease.revoke`, `space.*`, `policy.set`, `ref.seed`, `executor.enroll`, invitations).
+`ask.answer`, `override.record`, and every admin op (`principal.*`, `lease.revoke`, `space.*`, `policy.set`, `ref.seed`, invitations).
+
+Withdrawal by the addressed human or admin uses a human key; the asking principal may withdraw an unblocking ask using its existing credential. Companion human-key operations are defined by their specifications.
 
 ### 10.4 Establishing "human"
 
@@ -524,7 +473,7 @@ Open asks to a human SHOULD appear at the top of the board, in that human's inbo
 
 ### 11.1 Canonical JSON
 
-JCS (RFC 8785) is used for event hashes, payload hashes, ticket and authorization signatures and executor fingerprints. Inputs MUST be plain JSON data: no duplicate keys, finite numbers, valid Unicode strings. Integers in protocol data are at most 2^53 − 1.
+JCS (RFC 8785) is used for event hashes, payload hashes, ticket and authorization signatures and executor fingerprints. Inputs MUST be plain JSON data: no duplicate keys, finite numbers, valid Unicode strings. Integers in protocol data are at most 2^53 − 1. Canonical JSON and signature test vectors are listed in Appendix C.
 
 ### 11.2 Relay signing key
 
@@ -533,8 +482,8 @@ Each relay has one Ed25519 signing key. Signatures are base64 (standard alphabet
 | Object | Signed bytes |
 |---|---|
 | Hello proof | UTF-8 of `"crosstalk-hello:" + nonce` |
-| Deploy ticket, deploy authorization | UTF-8 of `JCS(payload)` |
-| Audit head | UTF-8 of `space + epoch + decimal(through_seq) + through_hash + xhash`, concatenated without separators |
+| Deploy ticket, deploy authorization | [Deploy-executor companion](companions/deploy-executor.md) |
+| Audit head | [Audit-export companion](companions/audit-export.md) |
 
 ### 11.3 Key representation
 
@@ -544,28 +493,9 @@ The public key is exchanged as PEM SPKI. A pin is either `ed25519:` followed by 
 
 A client MUST pin the relay URL, the space and the relay key per clone, after a human reviewed them. Before its first authenticated request in a process, the client MUST run the hello proof with a fresh random nonce and verify the signature against the pin; on mismatch it MUST stop. If the repository configuration changes the relay or space, the client MUST stop talking to the relay until a human re-pins. Executors pin the relay key in their root-owned configuration.
 
-## 12. Audit export
+## 12. Optional audit export
 
-### 12.1 Content
-
-A conforming exporter exports: `lease` events touching `env:` or `branch:` keys, `branch_status`, `reservation`, `ask` events of kind `approval` and `answer` events to them, `decision`, `deployment`, `admin`. All other events (intents, messages, `path:`/`tree:` leases, question asks and their answers) are represented by skip lines. This exported set is fixed for the whole major version: an event body type added in a minor version is always exported as a skip line under `refs/crosstalk/audit/v1`, so exporters and relays of different minors compute the same `xhash`. Implementations MUST NOT make the set configurable; widening it requires a new major and audit ref.
-
-### 12.2 Lines and chains
-
-The export is a JSONL stream with its own hash chain, separate from the event chain. Each line is one event per relay event, in `seq` order:
-
-- `{"x": "event", "event": <committed event>, "xprev": …, "xhash": …}`
-- `{"x": "skip", "from_seq": n, "to_seq": n, "count": 1, "last_hash": <that event's hash>, "xprev": …, "xhash": …}`
-
-`xhash = "sha256:" + hex(SHA-256(UTF-8(xprev) ‖ UTF-8(JCS(line without xhash))))`; the first line's `xprev` is the genesis value. Producers MUST emit one skip line per skipped event, so the chain is independent of batching. A verifier MUST check that the export chain is unbroken, that `seq` is contiguous across lines, that each exported event's hash is valid, and that each event's `prev_hash` equals the previous line's `hash` or `last_hash`. It cannot check skipped content; the signed head vouches for it.
-
-### 12.3 Head and attestation
-
-The head is `{space, epoch, through_seq, through_hash, xhash, relay_key, sig, exported_at}`. The exporter computes `xhash` for its lines and calls `/audit/attest`; the relay recomputes the export chain over its own events (from its last checkpoint), refuses with `conflict` if `xhash` differs and with `resync` if history is incomplete, and otherwise returns the signed head. After a successful push the exporter calls `/audit/published` so the relay advances its published cursor. Gates never wait for the export.
-
-### 12.4 Git storage
-
-The export is stored as an orphan commit chain on `refs/crosstalk/audit/v1`, pushed with `--force-with-lease` against the commit just read. A new epoch starts a new file set. The remote hook MUST allow updates under `refs/crosstalk/**` only from `ci:remote` or a human admin, fast-forward only, never deletes. The export is a read-only replica; nothing reads it back as authority. Because git history is replicated, text in it cannot be deleted later; this is why messages are not exported.
+Defined by the [audit-export companion](companions/audit-export.md).
 
 ## 13. Failure semantics
 
@@ -588,9 +518,9 @@ See 6.5 and 6.8. A client MUST NOT complete a claim "in the background" and assu
 
 State is durable. Sessions keep their tokens; long-poll clients resume from their cursor; leases keep persisted deadlines (5.6).
 
-### 13.4 Backup restore and epochs
+### 13.4 Optional restore
 
-Restoring a backup may lose acknowledged writes. Restore MUST therefore be an explicit operation that, in one transaction: starts a new `epoch` (event `admin`/`epoch_started`), revokes every `held` or `pending` lease (holders claim again and get new fences), and freezes the space (event `admin`/`gates_frozen`). While frozen, `/check`, deploy tickets, deploy authorizations and `reserve` return `frozen`. Before `space.unfreeze` succeeds, every executor MUST re-enroll in the new epoch (which raises the fence counter above the executor's `max_fence`). Admins SHOULD raise every sequence floor above the highest value seen in the repository, the audit export and client receipts plus a safety gap, and SHOULD re-check requirements and decisions against the audit export. Clients that see a new `epoch` MUST drop cursors and cached boards.
+Defined by the [restore companion](companions/restore.md).
 
 ### 13.5 Other
 
@@ -638,8 +568,8 @@ The repository configuration names the relay and space, and any pull request can
 
 ### 15.1 Version numbers
 
-- The protocol version is `MAJOR.MINOR` (for example `1.0`), independent of any package version.
-- The **major** version appears in the URL prefix (`/v1`), in the schema `$id` path (`/schema/v1/`), in the event envelope (`v: 1`) and in the audit ref (`refs/crosstalk/audit/v1`).
+- The protocol version is `MAJOR.MINOR` (for example `2.0`), independent of any package version.
+- The **major** version appears in the URL prefix (`/v2`), in the schema `$id` path (`/schema/v2/`), in the event envelope (`v: 2`) and in the audit ref (`refs/crosstalk/audit/v2`).
 - The **minor** version appears only in discovery and in the `Crosstalk-Protocol` header. It never appears in paths or `$id`s.
 
 ### 15.2 Discovery and negotiation
@@ -649,7 +579,7 @@ The repository configuration names the relay and space, and any pull request can
 ```
 GET /.well-known/crosstalk
 200 {"protocol": "crosstalk",
-     "versions": [{"version": "1.0", "base": "/v1"}],
+     "versions": [{"version": "2.0", "base": "/v2"}],
      "deprecated": [],
      "implementation": {"name": "crosstalk", "version": "0.4.2"}}
 ```
@@ -678,7 +608,7 @@ A minor version MUST NOT: remove or rename anything; make an optional field requ
 |---|---|---|---|---|
 | **Relay** receiving commands and requests | MUST reject with `invalid_request` (requests are strict, so a client never believes a field took effect when it did not) | — | MUST reject with `invalid_request` | — |
 | **Relay** receiving an unknown `op` | — | — | — | MUST answer `unsupported_op` |
-| **Client, exporter, verifier** receiving responses and events | MUST ignore for behaviour, MUST preserve it in caches, exports and hash computation | MUST skip it for state, MUST keep it in the chain, MUST export it as a skip line (12.1) | MUST treat as "unknown" and never as a grant | MUST act on HTTP status class (4xx: do not retry; 5xx: retry with the same `request_id`) |
+| **Client, exporter, verifier** receiving responses and events | MUST ignore for behaviour, MUST preserve it in caches, exports and hash computation | MUST skip it for state, MUST keep it in the chain, MUST export it as a skip line when implementing the audit-export companion | MUST treat as "unknown" and never as a grant | MUST act on HTTP status class (4xx: do not retry; 5xx: retry with the same `request_id`) |
 
 Fail-closed defaults apply: an unknown gate verdict is `block`; an unknown lease state means "not held"; an unknown ask state means "not answered".
 
@@ -703,13 +633,21 @@ A major version is required for any change 15.3 forbids. A new major gets a new 
 
 Implementation-specific extensions MUST NOT add members to protocol objects (relays reject unknown request members). Instead they use:
 
-- endpoints under `/v1/spaces/{space}/ext/<vendor>/…`;
+- endpoints under `/v2/spaces/{space}/ext/<vendor>/…`;
 - data message parts whose `data` object uses keys of the form `ext:<vendor>:<name>`, which carry structured data between cooperating clients;
 - relay configuration and policy outside the wire protocol.
 
 Anything that should become part of the protocol is proposed as a new minor version.
 
 ## 16. Protocol changelog
+
+### 2.0 (2026-11-17)
+
+- New major: `/v2`, envelope `v: 2`, v2 schema IDs and audit ref; immutable 1.0 snapshots retained. Protocol 1.0 had no deployments or users, so the reference relay does not serve it alongside 2.0; `/v1/` requests return `unsupported_version` (exception to the SHOULD in 15.6).
+- Removed ask cancellation, rejection/expiry states and expiry sweep, `reaffirm`, branch `cleared`, the unused `executor.reconcile` wire op, and A2A claims. Approval answers may repeat and rebind; the newest decision controls each requirement. Askers may withdraw only unblocking asks; deadlines are informational.
+- Moved deployment execution, audit export and backup restore to optional normative companions. The no-live-state deploy block applies only to environments with an enrolled executor.
+- Published portable canonical JSON, event hash, resource key, signature and merge-gate test vectors (Appendix C).
+- Remote hooks and GitHub required checks inspect draft ancestry; ready branch names may be reused after merge. Expanded sanitizer Unicode ranges and shell classification; configured deploy commands require session-held env leases; sequence-file creation checks reservation ownership and abandonment.
 
 ### 1.0 (2026-11-17)
 
@@ -815,17 +753,20 @@ The event and command `$id`s are those of the reference implementation. The othe
 
 | Schema | `$id` | Describes |
 |---|---|---|
-| Event | `https://flix-wg.github.io/crosstalk/schema/v1/event.json` | Committed event envelope and all body types; `$defs` for `time`, `hash`, `digest`, `oid`, `text`, `key`, `keys`, `parts` and each body. |
-| Command | `https://flix-wg.github.io/crosstalk/schema/v1/command.json` | `{request_id, op, args, expect_rev?}`, one branch per op. |
-| Session input | `https://flix-wg.github.io/crosstalk/schema/v1/session.json` | `POST /sessions` body. |
-| Executor install | `https://flix-wg.github.io/crosstalk/schema/v1/install.json` | `POST /executor/install` body: `{epoch, lease_id, env, fence, max_fence, dry_run}`. |
-| Gate input | `https://flix-wg.github.io/crosstalk/schema/v1/gate.json` | `POST /check` body (without `space`, `now`). |
-| Deploy input, ticket | `https://flix-wg.github.io/crosstalk/schema/v1/deploy.json` | Ticket request `{env, sha, artifact, lease_id, fence, op}`, signed ticket `{payload, signature}`. |
+| Event | `https://flix-wg.github.io/crosstalk/schema/v2/event.json` | Committed event envelope and all body types; `$defs` for `time`, `hash`, `digest`, `oid`, `text`, `key`, `keys`, `parts` and each body. |
+| Command | `https://flix-wg.github.io/crosstalk/schema/v2/command.json` | `{request_id, op, args, expect_rev?}`, one branch per op. |
+| Session input | `https://flix-wg.github.io/crosstalk/schema/v2/session.json` | `POST /sessions` body. |
+| Executor install (deploy-executor companion) | `https://flix-wg.github.io/crosstalk/schema/v2/install.json` | `POST /executor/install` body: `{epoch, lease_id, env, fence, max_fence, dry_run}`. |
+| Gate input | `https://flix-wg.github.io/crosstalk/schema/v2/gate.json` | `POST /check` body (without `space`, `now`). |
+| Deploy input, ticket (deploy-executor companion) | `https://flix-wg.github.io/crosstalk/schema/v2/deploy.json` | Ticket request `{env, sha, artifact, lease_id, fence, op}`, signed ticket `{payload, signature}`. |
 
 ## Appendix B: References
 
 - RFC 2119, RFC 8174: requirement keywords. RFC 3339: timestamps. RFC 8785: JSON Canonicalization Scheme. RFC 8032: Ed25519. RFC 9562: UUIDs.
 - JSON Schema 2020-12.
 - Model Context Protocol (tools, `outputSchema`, `structuredContent`).
-- A2A 1.0.1 (message parts, task states).
 - Fencing tokens as used by Chubby and etcd leases.
+
+## Appendix C: Test vectors
+
+[Protocol 2.0 test vectors](../test-vectors/2.0/) contain JSON inputs and expected outputs for JCS, three chained events, resource canonicalization and overlap, Ed25519 signatures (TEST-ONLY seed), and merge gates. They are normative interoperability examples; the rules above govern other inputs. Published copies live at `https://flix-wg.github.io/crosstalk/test-vectors/2.0/`. Regenerate the reference outputs with `npm run vectors`.

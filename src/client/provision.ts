@@ -57,7 +57,7 @@ export async function initialize(repo: string, input: { relay: string; relayKey:
   if (config.relay !== new URL(input.relay).origin || config.relay_key !== input.relayKey) throw new ClientError("conflict", "Existing config names a different relay");
   const scope = credentialScope(config);
   const { agentKey, humanKey } = localKeys(scope);
-  await provision(config.relay, "/v1/init", input.operatorKey, { space: config.space, principal: input.principal, agentKey, humanKey });
+  await provision(config.relay, "/v2/init", input.operatorKey, { space: config.space, principal: input.principal, agentKey, humanKey });
   config.trust();
 }
 export async function enroll(repo: string, code: string): Promise<void> {
@@ -66,7 +66,7 @@ export async function enroll(repo: string, code: string): Promise<void> {
   const scope = credentialScope(config);
   // Each invitation rotates credentials, while retrying the same invitation keeps its fingerprint.
   const { agentKey, humanKey } = localKeys(scope + "/enroll/" + digest(code));
-  await provision(config.relay, "/v1/spaces/" + config.space + "/enroll", code, { agentKey, humanKey });
+  await provision(config.relay, "/v2/spaces/" + config.space + "/enroll", code, { agentKey, humanKey });
   saveKey(scope, agentKey, false); saveKey(scope, humanKey, true);
   config.trust();
 }

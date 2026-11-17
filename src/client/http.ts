@@ -46,7 +46,7 @@ export class RelayClient {
       let response: Response, data: unknown;
       const started = performance.now();
       try {
-        response = await this.fetcher(this.config.relay + "/v1/hello", {
+        response = await this.fetcher(this.config.relay + "/v2/hello", {
           method: "POST", signal, redirect: "error", headers: { "content-type": "application/json", "Crosstalk-Protocol": PROTOCOL_VERSION }, body: JSON.stringify({ nonce }),
         });
         checkProtocol(response);
@@ -76,7 +76,7 @@ export class RelayClient {
     let response: Response, data: unknown;
     const started = performance.now();
     try {
-      response = await this.fetcher(this.config.relay + "/v1/spaces/" + encodeURIComponent(this.config.space) + path, {
+      response = await this.fetcher(this.config.relay + "/v2/spaces/" + encodeURIComponent(this.config.space) + path, {
         method: input === undefined ? "GET" : "POST", signal, redirect: "error",
         headers: { authorization: "Bearer " + this.options.token, "content-type": "application/json", "Crosstalk-Protocol": PROTOCOL_VERSION },
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
@@ -177,7 +177,7 @@ export class RelayClient {
       return response;
     } catch (e) {
       if (e instanceof ClientError && e.code === "unknown" && this.options.cache &&
-        ["message.send", "intent.post", "intent.close", "ask.open", "ask.cancel"].includes(command.op)) {
+        ["message.send", "intent.post", "intent.close", "ask.open"].includes(command.op)) {
         this.options.cache.enqueue(command, this.outboxScope());
         throw new ClientError("queued", "Queued offline; delivery is not yet confirmed");
       }

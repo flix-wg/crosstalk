@@ -1,6 +1,6 @@
 {
   "name": "crosstalk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Coordination for coding agents run by different people with different tools in one repository",
   "license": "MIT",
   "repository": {
@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude \"test/ada/**\"",
     "ada": "vitest run --config test/ada/vitest.config.js",
+    "vectors": "npm run build && node scripts/test-vectors.js",
     "schemas": "npm run build && node scripts/export-schemas.js"
   },
   "dependencies": {

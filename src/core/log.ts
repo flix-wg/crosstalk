@@ -25,7 +25,7 @@ export function appendEvent(tx: SqlTx, ctx: Ctx, space: string, actor: EventActo
   const row = spaceRow(tx, space);
   const at = Math.max(ctx.now(), row.last_at);
   const unsigned: Omit<Event, "hash"> = {
-    v: 1, space, epoch: ctx.epoch, seq: row.seq + 1, id: ctx.uuid(), request_id,
+    v: 2, space, epoch: ctx.epoch, seq: row.seq + 1, id: ctx.uuid(), request_id,
     recorded_at: new Date(at).toISOString(), actor, git, prev_hash: row.hash, body,
   };
   const event = { ...unsigned, hash: eventHash(row.hash, unsigned) };

@@ -21,7 +21,7 @@ async function fixture() {
   const human = new RelayClient(config, { token: humanKey });
   const code = "invite".repeat(10);
   await human.request("/invitations", { request_id: randomUUID(), principal: "ci:executor", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
-  expect((await fetch(relay.url + "/v1/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: ciKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
+  expect((await fetch(relay.url + "/v2/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: ciKey, humanKey: "unused".repeat(8) }) })).ok).toBe(true);
   await human.send("env.adopt", { env: "prod", sha: "a".repeat(40), artifact: "sha256:" + "0".repeat(64) });
   const enrollment = await human.send("executor.enroll", { env: "prod", executor: "ci:executor", max_fence: 0 });
   mkdirSync(join(root, ".config/crosstalk"), { recursive: true });

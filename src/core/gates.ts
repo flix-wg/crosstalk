@@ -32,8 +32,9 @@ export function evaluateGate(tx: Snapshot, input: GateInput): GateResult {
     const asks = tx.all<{ body: string }>("SELECT body FROM asks WHERE space=?", input.space).map(row => JSON.parse(row.body) as Ask);
     for (const ask of asks) {
       if (ask.kind !== "approval" || ask.state === "withdrawn" || !ask.blocks?.includes(scope)) continue;
-      const satisfied = ask.state === "answered" && decisions.some(d => d.source.kind === "ask" && d.source.id === ask.ask_id && d.decided_by === ask.to &&
-        d.verdict === "approve" && d.bound_head === head && (input.kind === "merge" || d.bound_artifact === input.artifact));
+      const d = decisions.find(d => d.source.kind === "ask" && d.source.id === ask.ask_id);
+      const satisfied = ask.state === "answered" && d && d.decided_by === ask.to &&
+        d.verdict === "approve" && d.bound_head === head && (input.kind === "merge" || d.bound_artifact === input.artifact);
       if (!satisfied) return result("block", "Waiting for " + ask.to + ": " + ask.question, [ask.to]);
     }
     return undefined;
@@ -50,7 +51,7 @@ export function evaluateGate(tx: Snapshot, input: GateInput): GateResult {
     const row = tx.get<{ body: string }>("SELECT body FROM branch_status WHERE space=? AND branch=?", input.space, input.source_branch);
     const status = row ? JSON.parse(row.body) as BranchStatus : undefined;
     let verdict: GatePolicy, reason: string;
-    if (!status || status.state === "cleared") { verdict = policy.gates?.merge?.unknown ?? "warn"; reason = "No branch status; publish branch_status ready at the exact head before merging (a merge or new commit changes the head)"; }
+    if (!status) { verdict = policy.gates?.merge?.unknown ?? "warn"; reason = "No branch status; publish branch_status ready at the exact head before merging (a merge or new commit changes the head)"; }
     else if (status.state === "draft" || status.state === "wip") { verdict = "block"; reason = status.owner + ": " + status.state + (status.pending?.length ? " — " + status.pending.join(", ") : ""); }
     else if (status.head === input.source_head) { verdict = "pass"; reason = "Ready at source head"; }
     else { verdict = policy.gates?.merge?.stale_ready ?? "warn"; reason = "Ready status is for another head"; }
@@ -64,6 +65,6 @@ export function evaluateGate(tx: Snapshot, input: GateInput): GateResult {
   if (blocked) return blocked;
   const ref = policy.envs?.[input.env]?.require_on;
   if (ref && !tx.get("SELECT 1 FROM reachability WHERE space=? AND ref=? AND sha=?", input.space, refName(ref), input.sha)) return result("block", "SHA is not reachable on " + ref);
-  if (!liveState(tx, input.space, input.env)) return result("block", "Environment needs human adoption");
+  if (tx.get("SELECT 1 FROM executors WHERE space=? AND env=?", input.space, input.env) && !liveState(tx, input.space, input.env)) return result("block", "Environment needs human adoption");
   return result("pass");
 }

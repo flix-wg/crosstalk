@@ -100,7 +100,7 @@ export class LocalCache {
     return this.db.prepare("SELECT receipt FROM reservation_receipts WHERE scope=?").all(this.scope).map(r => JSON.parse(String(r.receipt)) as unknown);
   }
   enqueue(command: Command, session = "legacy"): void {
-    if (!["message.send", "intent.post", "intent.close", "ask.open", "ask.cancel"].includes(command.op))
+    if (!["message.send", "intent.post", "intent.close", "ask.open"].includes(command.op))
       throw new ClientError("not_queueable", "Only messages, intents and asks can be queued offline");
     scanSecrets(command.args);
     const json = JSON.stringify(command);

@@ -50,7 +50,7 @@ export function query(tx: SqlTx, q: Query): Result {
     result.leases = [...liveLeases, ...oldLeases].map(row => leaseView(row, q.now));
     const openAsks = tx.all<{ body: string }>("SELECT body FROM asks WHERE space=? AND (status='open' OR (json_extract(body, '$.kind')='approval' AND status!='withdrawn'))", q.space);
     const oldAsks = recent<{ body: string }>("asks", "SELECT body FROM asks WHERE space=? AND status!='open' AND (json_extract(body, '$.kind')!='approval' OR status='withdrawn') ORDER BY rowid DESC LIMIT 101", q.space);
-    result.asks = [...openAsks, ...oldAsks].map(row => JSON.parse(row.body) as Ask).map(ask => ask.state === "open" && ask.deadline && Date.parse(ask.deadline) <= q.now ? { ...ask, state: "expired" } : ask);
+    result.asks = [...openAsks, ...oldAsks].map(row => JSON.parse(row.body) as Ask);
     result.more = more;
     result.live = Object.fromEntries(tx.all<{ env: string }>("SELECT DISTINCT env FROM deployments WHERE space=?", q.space).map(({ env }) => [env, liveState(tx, q.space, env)]));
     const audit = query(tx, { kind: "audit", space: q.space });
@@ -64,8 +64,7 @@ export function query(tx: SqlTx, q: Query): Result {
   });
   if (q.kind === "asks") {
     const asks = tx.all<{ body: string }>("SELECT body FROM asks WHERE space=?", q.space).map(row => JSON.parse(row.body) as Ask)
-      .filter(ask => q.to === undefined || ask.to === q.to)
-      .map(ask => ask.state === "open" && ask.deadline && Date.parse(ask.deadline) <= q.now ? { ...ask, state: "expired" } : ask);
+      .filter(ask => q.to === undefined || ask.to === q.to);
     return ok(tx, q.space, asks);
   }
   if (q.kind === "inbox") {

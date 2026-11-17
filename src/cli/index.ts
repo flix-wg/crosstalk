@@ -70,7 +70,7 @@ async function normal(name: string, c: CommandContext): Promise<number> {
   }
   const sub = ["admin", "ask", "env"].includes(name) ? a.positional[0] : undefined;
   // Releasing another session's lease needs the human key: the CLI session uses the same agent key as the agents.
-  const human = ["answer", "override", "admin", "env"].includes(name) || (name === "ask" && sub === "withdraw") || (name === "release" && !!a.take("human"));
+  const human = ["answer", "override", "admin", "env"].includes(name) || (name === "ask" && sub === "withdraw" && !!a.take("human")) || (name === "release" && !!a.take("human"));
   let workspace: Workspace | undefined;
   try {
     let client: RelayClient, sessionId: string | undefined;
@@ -96,10 +96,11 @@ async function normal(name: string, c: CommandContext): Promise<number> {
       case "reserve": op = "reserve"; args = { sequence: a.pos(), floor: a.number("floor"), abandon: a.number("abandon"), note: a.take("note") }; break;
       case "send": op = "message.send"; args = { to: [a.pos()], context_id: a.take("context") ?? randomUUID(), parts: [{ kind: "text", text: a.pos() }] }; break;
       case "ask":
-        if (["withdraw", "cancel"].includes(sub ?? "")) { a.pos(); op = sub === "withdraw" ? "ask.withdraw" : "ask.cancel"; args = { ask_id: a.pos(), ...(op === "ask.withdraw" ? { reason: a.take("reason") } : {}) }; }
+        if (sub === "cancel") throw new ClientError("usage", "Use xt ask withdraw <id> instead");
+        if (sub === "withdraw") { a.pos(); op = "ask.withdraw"; args = { ask_id: a.pos(), reason: a.take("reason") }; }
         else { op = "ask.open"; args = { to: a.pos(), question: a.pos(), kind: a.take("approval") ? "approval" : "question", options: a.all("option"), resources: a.all("res"), blocks: a.all("blocks"), bound_head: a.take("head") ?? git.head, bound_artifact: a.take("artifact"), deadline: a.take("deadline") }; for (const k of ["options", "resources", "blocks"]) if (!(args[k] as string[]).length) delete args[k]; }
         break;
-      case "answer": op = "ask.answer"; args = { ask_id: a.pos(), choice: a.pos(), text: a.take("text"), reaffirm: a.take("reaffirm") ? true : undefined }; if (args.reaffirm) { args.bound_head = a.take("head") ?? git.head; args.bound_artifact = a.take("artifact"); } break;
+      case "answer": op = "ask.answer"; args = { ask_id: a.pos(), choice: a.pos(), text: a.take("text"), bound_head: a.take("head"), bound_artifact: a.take("artifact") }; break;
       case "branch": op = "branch.set"; args = { state: a.pos(), branch: a.take("branch") ?? git.branch, head: a.take("head") ?? git.head, note: a.take("note"), pending: a.all("pending"), owner: a.take("owner") }; branchArguments(c.cwd, args); break;
       case "override": {
         if (a.pos() !== "merge") throw new ClientError("usage", "Only merge overrides are supported");
@@ -136,7 +137,7 @@ async function normal(name: string, c: CommandContext): Promise<number> {
       default: throw new ClientError("usage", "Unknown command");
     }
     a.done();
-    if (["ask.answer", "ask.cancel", "ask.withdraw"].includes(op!) && rev === undefined) {
+    if (["ask.answer", "ask.withdraw"].includes(op!) && rev === undefined) {
       const ask = (await client.asks()).result.find(ask => ask.ask_id === args.ask_id);
       if (!ask) throw new ClientError("not_found", "Ask not found");
       rev = ask.rev;

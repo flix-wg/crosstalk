@@ -30,7 +30,7 @@ test("bare remote enforces draft overrides, exact approval heads, non-FF and out
   const human = new RelayClient(config, { token: humanKey }), remote = new RelayClient(remoteConfig, { token: remoteKey });
   const code = "invite".repeat(10);
   await human.request("/invitations", { request_id: randomUUID(), principal: "ci:remote", role: "ci", code_hash: createHash("sha256").update(code).digest("hex") });
-  const enrolled = await fetch(relay.url + "/v1/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: remoteKey, humanKey: "unused".repeat(8) }) }); expect(enrolled.ok).toBe(true);
+  const enrolled = await fetch(relay.url + "/v2/spaces/" + space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: remoteKey, humanKey: "unused".repeat(8) }) }); expect(enrolled.ok).toBe(true);
   await human.send("policy.set", { protected_branches: ["main"] });
   expect((await runSeed("main", { cwd: bare, client: human })).exitCode).toBe(0);
   const w = new Workspace(repo); cleanup.push(() => w.close()); const session = await w.cliSession();

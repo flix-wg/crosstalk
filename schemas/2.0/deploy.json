@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v2/deploy.json",
+  "x-crosstalk-version": "2.0",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "artifact": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "lease_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "op": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "env",
+        "sha",
+        "artifact",
+        "lease_id",
+        "fence",
+        "op"
+      ]
+    },
+    "ticket": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "env": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            "sha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+            },
+            "artifact": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "lease_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "fence": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "op": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "const": "deploy_ticket"
+            },
+            "space": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "epoch": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "holder": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "principal": {
+              "type": "string",
+              "pattern": "^(human|ci):[a-z0-9][a-z0-9-]{0,38}$"
+            },
+            "expires_at": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "env",
+            "sha",
+            "artifact",
+            "lease_id",
+            "fence",
+            "op",
+            "kind",
+            "space",
+            "epoch",
+            "holder",
+            "principal",
+            "expires_at"
+          ]
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "payload",
+        "signature"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/ticket"
+    }
+  ]
+}

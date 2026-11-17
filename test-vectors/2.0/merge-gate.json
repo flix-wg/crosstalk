@@ -1,0 +1,577 @@
+{
+  "decision_order": "oldest first (increasing event seq)",
+  "cases": [
+    {
+      "name": "draft",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "draft",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "ready",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "stale",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "warn"
+    },
+    {
+      "name": "unknown status",
+      "snapshot": {
+        "branch_status": null,
+        "asks": [],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "warn"
+    },
+    {
+      "name": "unknown source",
+      "snapshot": {
+        "branch_status": null,
+        "asks": [],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main",
+        "unknown_source": true
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "open requirement",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "open",
+            "rev": 1,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "approved requirement",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "answered",
+            "rev": 2,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decisions": [
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000030",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          }
+        ],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "latest reject",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "answered",
+            "rev": 3,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decisions": [
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000030",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          },
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000031",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "reject",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          }
+        ],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "reject then approve new head",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "answered",
+            "rev": 3,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decisions": [
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000030",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "reject",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          },
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000031",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          }
+        ],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_branch": "main"
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "old head no longer approved",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "answered",
+            "rev": 3,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decisions": [
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000030",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          },
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000031",
+            "source": {
+              "kind": "ask",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          }
+        ],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "withdrawn requirement",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "withdrawn",
+            "rev": 2,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decisions": [],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "override draft",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "draft",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [],
+        "decisions": [
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000030",
+            "source": {
+              "kind": "override",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          }
+        ],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "override cannot satisfy requirement",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "draft",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "open",
+            "rev": 1,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "merge:branch:work"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decisions": [
+          {
+            "type": "decision",
+            "decision_id": "00000000-0000-4000-8000-000000000030",
+            "source": {
+              "kind": "override",
+              "id": "00000000-0000-4000-8000-000000000020"
+            },
+            "verdict": "approve",
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": [
+              "merge:branch:work"
+            ],
+            "decided_by": "human:test"
+          }
+        ],
+        "policy": {}
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "strict stale policy",
+      "snapshot": {
+        "branch_status": {
+          "type": "branch_status",
+          "branch": "work",
+          "state": "ready",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "owner": "human:test",
+          "rev": 1
+        },
+        "asks": [],
+        "decisions": [],
+        "policy": {
+          "gates": {
+            "merge": {
+              "stale_ready": "block"
+            }
+          }
+        }
+      },
+      "input": {
+        "kind": "merge",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "source_branch": "work",
+        "source_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_branch": "main"
+      },
+      "verdict": "block"
+    }
+  ]
+}

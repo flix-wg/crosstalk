@@ -16,7 +16,7 @@ export async function fixture() {
   const config = { database: join(dir, "db"), signingKeyFile: join(dir, "key"), bootstrap: { space, principal: "human:test", humanKey, agentKey } };
   const relay = await startRelay(config);
   cleanup.push(async () => { await relay.close(); rmSync(dir, { recursive: true, force: true }); });
-  const base = relay.url + "/v1/spaces/" + space;
+  const base = relay.url + "/v2/spaces/" + space;
   async function call(path: string, token: string, body?: unknown) {
     const response = await fetch(base + path, { method: body === undefined ? "GET" : "POST",
       headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -59,7 +59,7 @@ test("HTTP rejects invalid authentication, oversized JSON and frozen gates after
   restoreDatabase(f.config.database, f.space);
   const next = await startRelay(f.config);
   cleanup.push(next.close);
-  const response = await fetch(next.url + "/v1/spaces/" + f.space + "/commands", { method: "POST",
+  const response = await fetch(next.url + "/v2/spaces/" + f.space + "/commands", { method: "POST",
     headers: { authorization: "Bearer " + token, "content-type": "application/json" },
     body: JSON.stringify({ request_id: randomUUID(), op: "reserve", args: { sequence: "seq:test" } }) });
   const result = await response.json();
@@ -88,7 +88,7 @@ test("repeated init requires the exact admin principal and credential kinds", { 
   const operatorKey = "o".repeat(40);
   const relay = await startRelay({ ...f.config, operatorKey }); cleanup.push(relay.close);
   const init = async (overrides: Record<string, unknown> = {}) => {
-    const response = await fetch(relay.url + "/v1/init", { method: "POST", headers: { authorization: "Bearer " + operatorKey, "content-type": "application/json" }, body: JSON.stringify({ ...f.config.bootstrap, ...overrides }) });
+    const response = await fetch(relay.url + "/v2/init", { method: "POST", headers: { authorization: "Bearer " + operatorKey, "content-type": "application/json" }, body: JSON.stringify({ ...f.config.bootstrap, ...overrides }) });
     return { status: response.status, data: await response.json() };
   };
   expect((await init()).status).toBe(200);
@@ -103,12 +103,12 @@ test("repeated init requires the exact admin principal and credential kinds", { 
 test("proxy hello buckets use the first forwarded address; authenticated buckets isolate sessions", { timeout: 60000 }, async () => {
   const f = await fixture(); await f.relay.close();
   const relay = await startRelay({ ...f.config, trustProxy: true, rateLimit: { burst: 2, perSecond: 0.01 } }); cleanup.push(relay.close);
-  const hello = (ip: string) => fetch(relay.url + "/v1/hello", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify({ nonce: "x".repeat(32) }) });
+  const hello = (ip: string) => fetch(relay.url + "/v2/hello", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify({ nonce: "x".repeat(32) }) });
   expect((await hello("192.0.2.1, 10.0.0.1")).status).toBe(200);
   expect((await hello("192.0.2.1, 10.0.0.2")).status).toBe(200);
   expect((await hello("192.0.2.1, 10.0.0.3")).status).toBe(429);
   expect((await hello("192.0.2.2, 10.0.0.1")).status).toBe(200);
-  const call = async (path: string, token: string, body?: unknown) => fetch(relay.url + "/v1/spaces/" + f.space + path, { method: body ? "POST" : "GET", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: body && JSON.stringify(body) });
+  const call = async (path: string, token: string, body?: unknown) => fetch(relay.url + "/v2/spaces/" + f.space + path, { method: body ? "POST" : "GET", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: body && JSON.stringify(body) });
   const tokens: string[] = [];
   for (let i = 0; i < 2; i++) tokens.push((await (await call("/sessions", f.agentKey, { tool: "codex", harness_session_id: String(i), machine: "test", worktree: null, branch: null, head: null })).json()).result.token);
   expect((await call("/board", tokens[0])).status).toBe(200);
@@ -128,12 +128,12 @@ test("reinvitation does not reactivate outstanding capabilities from before prin
 test("HTTP discovery and version negotiation preserve strict commands", async () => {
   const f = await fixture();
   const discovery = await fetch(f.relay.url + "/.well-known/crosstalk");
-  expect(discovery.headers.get("Crosstalk-Protocol")).toBe("1.0");
-  expect(await discovery.json()).toEqual({ protocol: "crosstalk", versions: [{ version: "1.0", base: "/v1" }], deprecated: [], implementation: { name: "crosstalk", version: "0.1.0" } });
-  for (const [path, status, code] of [["/v2/spaces/x", 404, "unsupported_version"], ["/v99/hello", 404, "unsupported_version"], ["/missing", 404, "not_found"], ["/v1/spaces/" + f.space + "/board", 401, "unauthenticated"]] as const) {
+  expect(discovery.headers.get("Crosstalk-Protocol")).toBe("2.0");
+  expect(await discovery.json()).toEqual({ protocol: "crosstalk", versions: [{ version: "2.0", base: "/v2" }], deprecated: [], implementation: { name: "crosstalk", version: "0.2.0" } });
+  for (const [path, status, code] of [["/v1/spaces/x", 404, "unsupported_version"], ["/v99/hello", 404, "unsupported_version"], ["/missing", 404, "not_found"], ["/v2/spaces/" + f.space + "/board", 401, "unauthenticated"]] as const) {
     const response = await fetch(f.relay.url + path);
     expect(response.status).toBe(status);
-    expect(response.headers.get("Crosstalk-Protocol")).toBe("1.0");
+    expect(response.headers.get("Crosstalk-Protocol")).toBe("2.0");
     expect((await response.json()).error.code).toBe(code);
   }
   const url = new URL(f.relay.url);
@@ -141,11 +141,11 @@ test("HTTP discovery and version negotiation preserve strict commands", async ()
     const socket = connect(Number(url.port), url.hostname, () => socket.write("GET / HTTP/1.1\r\nHost: x\r\nX: " + "a".repeat(20000) + "\r\n\r\n"));
     socket.once("data", data => { socket.destroy(); resolve(data.toString()); });
   });
-  expect(raw).toMatch(/^HTTP\/1\.1 431 [^]*\r\nCrosstalk-Protocol: 1\.0\r\n/);
+  expect(raw).toMatch(/^HTTP\/1\.1 431 [^]*\r\nCrosstalk-Protocol: 2\.0\r\n/);
   for (const [op, args, code] of [["future.op", null, "unsupported_op"], ["toString", {}, "unsupported_op"], ["executor.reconcile", { env: "prod" }, "unsupported_op"], ["lease.claim", {}, "invalid_request"]] as const) {
-    const response = await fetch(f.base + "/commands", { method: "POST", headers: { authorization: "Bearer " + f.humanKey, "content-type": "application/json", "Crosstalk-Protocol": "1.99" }, body: JSON.stringify({ request_id: randomUUID(), op, args }) });
+    const response = await fetch(f.base + "/commands", { method: "POST", headers: { authorization: "Bearer " + f.humanKey, "content-type": "application/json", "Crosstalk-Protocol": "2.99" }, body: JSON.stringify({ request_id: randomUUID(), op, args }) });
     expect(response.status).toBe(400);
-    expect(response.headers.get("Crosstalk-Protocol")).toBe("1.0");
+    expect(response.headers.get("Crosstalk-Protocol")).toBe("2.0");
     expect((await response.json()).error.code).toBe(code);
   }
 });

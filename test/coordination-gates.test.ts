@@ -91,7 +91,7 @@ test("asks enforce addressed human CAS and atomically record bound decisions", (
     for (const actor of [agent, other]) expect(f.command(actor, "ask.answer", { ask_id: ask.ask_id, choice: "approve" }, { expect_rev: 1 })).toMatchObject({ error: { code: "not_authorized" } });
     value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "approve" }, { expect_rev: 1 }));
     expect(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "reject" }, { expect_rev: 1 })).toMatchObject({ error: { code: "stale_revision" } });
-    value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "approve", reaffirm: true, bound_head: "b".repeat(40) }, { expect_rev: 2 }));
+    value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "approve", bound_head: "b".repeat(40) }, { expect_rev: 2 }));
     const decisions = f.store.tx(tx => tx.all<{ body: string }>("SELECT body FROM decisions ORDER BY seq").map(row => JSON.parse(row.body)));
     expect(decisions).toMatchObject([{ source: { id: ask.ask_id }, bound_head: head, scope: ["merge:branch:work"] }, { source: { id: ask.ask_id }, bound_head: "b".repeat(40) }]);
     const ungated = value<{ ask_id: string }>(f.command(agent, "ask.open", { kind: "approval", to: "human:admin", question: "OK?" }));
@@ -130,7 +130,7 @@ test("merge gate table applies status policy and head-bound overrides without mu
     expect(f.store.tx(tx => tx.get("SELECT seq FROM spaces WHERE space=?", f.space))).toEqual(before);
   } finally { f.store.close(); }
 });
-test("two humans remain independent requirements; reject, cancel and expiry block until withdrawn", () => {
+test("two humans remain independent requirements; reject and overdue asks block until withdrawn", () => {
   const f = setup();
   try {
     value(f.command(f.admin, "principal.invite", { principal: "human:other", role: "member" }));
@@ -143,16 +143,16 @@ test("two humans remain independent requirements; reject, cancel and expiry bloc
     expect(gate()).toMatchObject({ verdict: "block", contacts: ["human:other"] });
     value(f.command(other, "ask.answer", { ask_id: b.ask_id, choice: "approve" }, { expect_rev: 1 }));
     expect(gate().verdict).toBe("pass");
-    for (const mode of ["reject", "cancel", "expire"]) {
+    for (const mode of ["reject", "expire"]) {
       const ask = open("human:other", { deadline: new Date(f.ctx.now() + 1000).toISOString() });
       if (mode === "expire") {
         f.setTime(f.ctx.now() + 1000);
         expect(gate().verdict).toBe("block");
         f.store.tx(tx => sweep(tx, f.ctx));
-      } else value(f.command(mode === "reject" ? other : f.admin, mode === "reject" ? "ask.answer" : "ask.cancel", { ask_id: ask.ask_id, ...(mode === "reject" ? { choice: "reject" } : {}) }, { expect_rev: 1 }));
+      } else value(f.command(other, "ask.answer", { ask_id: ask.ask_id, choice: "reject" }, { expect_rev: 1 }));
       value(f.command(f.admin, "override.record", { scope: ["merge:branch:work"], bound_head: head, reason: "cannot bypass ask" }));
       expect(gate().verdict).toBe("block");
-      value(f.command(other, "ask.withdraw", { ask_id: ask.ask_id }, { expect_rev: 2 }));
+      value(f.command(other, "ask.withdraw", { ask_id: ask.ask_id }, { expect_rev: mode === "expire" ? 1 : 2 }));
       expect(gate().verdict).toBe("pass");
     }
   } finally { f.store.close(); }
@@ -319,5 +319,64 @@ test("branch names can be reclaimed only after a ready head was merged or the ow
     value(f.command(b, "branch.set", { branch: "recycled", head, state: "wip" }));
     value(f.command(f.admin, "principal.revoke", { principal: "human:other" }));
     expect(value(f.command(a, "branch.set", { branch: "recycled", head, state: "draft" }))).toMatchObject({ owner: "human:admin" });
+  } finally { f.store.close(); }
+});
+
+test("newest approval answer reblocks on reject and re-admits only its rebound head", () => {
+  const f = setup();
+  try {
+    const agent = f.session(f.key("human:admin", "agent"));
+    const ask = value<{ ask_id: string }>(f.command(agent, "ask.open", { kind: "approval", to: "human:admin", question: "Ship?", blocks: ["merge:branch:work"], bound_head: head }));
+    const gate = (source_head: string) => f.store.tx(tx => evaluateGate(tx, { ...mergeInput, source_head, space: f.space, now: f.ctx.now() })).verdict;
+    value(f.command(agent, "branch.set", { branch: "work", state: "ready", head }));
+    value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "approve" }, { expect_rev: 1 }));
+    expect(gate(head)).toBe("pass");
+    expect(value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "reject" }, { expect_rev: 2 }))).toMatchObject({ state: "answered" });
+    expect(gate(head)).toBe("block");
+    expect(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "reject", bound_head: nextHead }, { expect_rev: 3 })).toMatchObject({ error: { code: "invalid_request" } });
+    value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "approve", bound_head: nextHead }, { expect_rev: 3 }));
+    value(f.command(agent, "branch.set", { branch: "work", state: "ready", head: nextHead }));
+    expect(gate(nextHead)).toBe("pass");
+    expect(gate(head)).toBe("block");
+  } finally { f.store.close(); }
+});
+
+test("asker can withdraw a question but cannot remove a requirement", () => {
+  const f = setup();
+  try {
+    const agent = f.session(f.key("human:admin", "agent"));
+    for (const blocking of [true, false]) {
+      const ask = value<{ ask_id: string }>(f.command(agent, "ask.open", { kind: blocking ? "approval" : "question", to: "human:admin", question: "Ship?", ...(blocking ? { blocks: ["merge:branch:work"], bound_head: head } : {}) }));
+      const result = f.command(agent, "ask.withdraw", { ask_id: ask.ask_id }, { expect_rev: 1 });
+      if (blocking) expect(result).toMatchObject({ error: { code: "not_authorized" } });
+      else expect(value(result)).toMatchObject({ state: "withdrawn" });
+    }
+  } finally { f.store.close(); }
+});
+
+test("deadline passing leaves ask state and revision unchanged in sweeps and reads", () => {
+  const f = setup();
+  try {
+    const ask = value<{ ask_id: string }>(f.command(f.admin, "ask.open", { kind: "question", to: "human:admin", question: "When?", deadline: new Date(f.ctx.now() + 1000).toISOString() }));
+    f.setTime(f.ctx.now() + 1000);
+    expect(f.store.tx(tx => sweep(tx, f.ctx))).toEqual([]);
+    for (const kind of ["board", "asks"] as const) {
+      const result = value<unknown>(f.store.tx(tx => query(tx, { kind, space: f.space, now: f.ctx.now() })));
+      const asks = kind === "board" ? (result as { asks: unknown[] }).asks : result;
+      expect(asks).toEqual([expect.objectContaining({ ask_id: ask.ask_id, state: "open", rev: 1 })]);
+    }
+    value(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "Now" }, { expect_rev: 1 }));
+    expect(f.command(f.admin, "ask.answer", { ask_id: ask.ask_id, choice: "Later" }, { expect_rev: 2 })).toMatchObject({ error: { code: "stale_revision" } });
+  } finally { f.store.close(); }
+});
+
+test("core deploy gate requires no live state for an env without an enrolled executor", () => {
+  const f = deploySetup();
+  try {
+    f.installLease();
+    // Keep a valid held lease while removing the optional executor binding from this snapshot.
+    f.store.tx(tx => tx.run("DELETE FROM executors WHERE space=? AND env=?", f.space, "prod"));
+    expect(f.gate().verdict).toBe("pass");
+    expect(f.gate({ fence: f.lease.fence + 1 }).verdict).toBe("block");
   } finally { f.store.close(); }
 });

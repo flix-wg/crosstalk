@@ -115,13 +115,13 @@ test('ADA-3 steps 5–8: artifact checks, retries, ordering and exact human appr
   const other = await f.api('felix', '/deploy/ticket', { env: 'prod', sha: f.initial, artifact: digest('a'), lease_id: a.lease_id, fence: a.fence, op: crypto.randomUUID() }, e.a.token); expect(other.status).toBe(200); expect((await e.promoteTicket(other.body.result)).code).not.toBe(0);
   const differentSha = await f.api('felix', '/deploy/ticket', { env: 'prod', sha: f.commit('felix', 'Unapproved SHA'), artifact: digest('c'), lease_id: a.lease_id, fence: a.fence, op: crypto.randomUUID() }, e.a.token);
   expect(differentSha.status).toBe(200); expect((await e.promoteTicket(differentSha.body.result)).code).not.toBe(0);
-  for (const action of ['reject', 'cancel']) {
+  for (const action of ['reject', 'withdraw denied']) {
     const requirement = json(await f.cli('dana', ['ask', 'human:felix', 'Allow prod?', '--approval', '--blocks', 'deploy:env:prod', '--head', f.initial, '--artifact', digest('c'), '--json'])).result;
     if (action === 'reject') await f.human('felix', ['answer', requirement.ask_id, 'reject']);
-    else ok(await f.cli('dana', ['ask', 'cancel', requirement.ask_id]));
+    else expect((await f.cli('dana', ['ask', 'withdraw', requirement.ask_id])).code).not.toBe(0);
     const input = { env: 'prod', sha: f.initial, artifact: digest('c'), lease_id: a.lease_id, fence: a.fence, op: crypto.randomUUID() };
     const gated = await f.api('felix', '/deploy/ticket', input, e.a.token); expect(gated.status).toBe(200); expect((await e.promoteTicket(gated.body.result)).code).not.toBe(0);
-    await f.human('felix', ['ask', 'withdraw', requirement.ask_id, '--reason', 'No longer required']);
+    await f.human('felix', ['ask', 'withdraw', '--human', requirement.ask_id, '--reason', 'No longer required']);
     ok(await e.promoteTicket(gated.body.result));
   }
   console.log('ADA-3: steps 5–7 passed; not covered: deploy bypassing the executor');

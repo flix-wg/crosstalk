@@ -70,8 +70,8 @@ test("CLI real relay claims conflict across worktrees, reservations are distinct
   expect((await f.call("inbox", "--ack", String(inbox.data.result.messages[0].seq), "--json")).code).toBe(0);
   expect((await f.call("inbox", "--json")).data.result.messages).toEqual([]);
   const ask = await f.call("ask", "human:test", "Question?", "--json");
-  expect((await f.call("ask", "cancel", ask.data.result.ask_id, "--json")).code).toBe(0);
-  expect((await f.call("asks", "--json")).data.result[0].state).toBe("canceled");
+  expect((await f.call("ask", "withdraw", ask.data.result.ask_id, "--json")).code).toBe(0);
+  expect((await f.call("asks", "--json")).data.result[0].state).toBe("withdrawn");
   writeFileSync(join(f.repo, ".crosstalk.toml"), readFileSync(join(f.repo, ".crosstalk.toml"), "utf8") + '\n[sequences.migration]\nfloor_glob = "versions/*.py"\nfloor_regex = "^([0-9]+)_"\n');
   mkdirSync(join(f.repo, "versions")); writeFileSync(join(f.repo, "versions/0042_test.py"), "");
   expect((await f.call("reserve", "seq:migration", "--json")).data.result.value).toBe(43);
@@ -102,7 +102,7 @@ test("human CLI policy, overrides, withdrawal and admin operations reach the rel
   await human("override", "merge", "--target", "main", "--head", "a".repeat(40), "--reason", "reviewed push");
   await human("override", "merge", "--branch", "topic", "--head", "a".repeat(40), "--reason", "reviewed branch");
   const ask = await f.call("ask", "human:test", "Approve?", "--approval", "--blocks", "merge:branch:topic", "--head", "a".repeat(40), "--json");
-  await human("ask", "withdraw", ask.data.result.ask_id, "--reason", "no longer needed");
+  await human("ask", "withdraw", "--human", ask.data.result.ask_id, "--reason", "no longer needed");
   await human("env", "adopt", "prod", "--sha", "a".repeat(40), "--artifact", "sha256:" + "a".repeat(64));
   const claim = await f.call("claim", "path:stuck", "--json");
   await human("admin", "revoke-lease", claim.data.result.lease_id, "--reason", "stuck");
@@ -208,7 +208,7 @@ test("init and invite redemption provision fresh credentials without stdout secr
   expect(enrolled.code).toBe(0); expect(enrolled.output).not.toContain(code);
   expect((await f.call("board", "--json")).code).toBe(0);
   // Reusing a redeemed invite with different credentials cannot create another identity.
-  const response = await fetch(f.relay.url + "/v1/spaces/" + f.space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: "x".repeat(40), humanKey: "y".repeat(40) }) });
+  const response = await fetch(f.relay.url + "/v2/spaces/" + f.space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + code, "content-type": "application/json" }, body: JSON.stringify({ agentKey: "x".repeat(40), humanKey: "y".repeat(40) }) });
   expect(response.status).toBe(403);
   const fresh = join(f.root, "fresh"); mkdirSync(fresh); execFileSync("git", ["init", fresh], { stdio: "ignore" });
   const initialized = await f.child(["init", "--relay", f.relay.url, "--relay-key", f.config.relay_key, "--principal", "human:new"], true, [{ prompt: 'Type "confirm"', answer: "confirm" }, { prompt: "Relay operator key:", answer: "o".repeat(40) }], fresh);
@@ -219,7 +219,7 @@ test("init and invite redemption provision fresh credentials without stdout secr
   expect(await runCLI(["board", "--json"], { cwd: fresh, out: () => {}, err: () => {} })).toBe(0);
   const ciFile = join(f.root, "ci-invite"); await invite(f.human, "ci:worker", "ci", ciFile);
   const ciCode = readFileSync(ciFile, "utf8").trim();
-  const ci = await fetch(f.relay.url + "/v1/spaces/" + f.space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + ciCode, "content-type": "application/json" }, body: JSON.stringify({ agentKey: "c".repeat(40), humanKey: "d".repeat(40) }) });
+  const ci = await fetch(f.relay.url + "/v2/spaces/" + f.space + "/enroll", { method: "POST", headers: { authorization: "Bearer " + ciCode, "content-type": "application/json" }, body: JSON.stringify({ agentKey: "c".repeat(40), humanKey: "d".repeat(40) }) });
   expect(ci.status).toBe(200);
   const ciClient = new RelayClient(f.config, { token: "c".repeat(40) });
   expect((await ciClient.request("/sessions", { tool: "ci", harness_session_id: "job", machine: "test", worktree: null, branch: null, head: null })).result).toHaveProperty("token");

@@ -1,0 +1,77 @@
+[
+  {
+    "input": {
+      "v": 2,
+      "space": "00000000-0000-4000-8000-000000000001",
+      "epoch": "00000000-0000-4000-8000-000000000002",
+      "seq": 1,
+      "id": "00000000-0000-4000-8000-000000000003",
+      "request_id": null,
+      "recorded_at": "2026-11-17T00:00:01.000Z",
+      "actor": {
+        "principal": "ci:relay",
+        "via": "relay"
+      },
+      "git": {
+        "branch": null,
+        "head": null
+      },
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "body": {
+        "type": "admin",
+        "action": "gates_frozen"
+      }
+    },
+    "hash": "sha256:aa477b294b199c80f42f9c902da61bb59d4c802dd99886873d924079e880ebf6"
+  },
+  {
+    "input": {
+      "v": 2,
+      "space": "00000000-0000-4000-8000-000000000001",
+      "epoch": "00000000-0000-4000-8000-000000000002",
+      "seq": 2,
+      "id": "00000000-0000-4000-8000-000000000004",
+      "request_id": null,
+      "recorded_at": "2026-11-17T00:00:02.000Z",
+      "actor": {
+        "principal": "ci:relay",
+        "via": "relay"
+      },
+      "git": {
+        "branch": null,
+        "head": null
+      },
+      "prev_hash": "sha256:aa477b294b199c80f42f9c902da61bb59d4c802dd99886873d924079e880ebf6",
+      "body": {
+        "type": "admin",
+        "action": "gates_unfrozen"
+      }
+    },
+    "hash": "sha256:a8c471d9be9cfc9ab00e6123c8f31d821a77e5ef645dd012defb9ae1cc0fae22"
+  },
+  {
+    "input": {
+      "v": 2,
+      "space": "00000000-0000-4000-8000-000000000001",
+      "epoch": "00000000-0000-4000-8000-000000000002",
+      "seq": 3,
+      "id": "00000000-0000-4000-8000-000000000005",
+      "request_id": null,
+      "recorded_at": "2026-11-17T00:00:03.000Z",
+      "actor": {
+        "principal": "ci:relay",
+        "via": "relay"
+      },
+      "git": {
+        "branch": null,
+        "head": null
+      },
+      "prev_hash": "sha256:a8c471d9be9cfc9ab00e6123c8f31d821a77e5ef645dd012defb9ae1cc0fae22",
+      "body": {
+        "type": "admin",
+        "action": "gates_frozen"
+      }
+    },
+    "hash": "sha256:eb0afb0bab4c6808bcd0a32dbc84ae1a4dc9c9e6e1d1f6cdce21bfd36512f4db"
+  }
+]
