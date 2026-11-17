@@ -1,0 +1,45 @@
+{
+  "name": "crosstalk",
+  "version": "0.0.0",
+  "description": "Coordination for coding agents run by different people with different tools in one repository",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flix-wg/crosstalk.git"
+  },
+  "homepage": "https://github.com/flix-wg/crosstalk#readme",
+  "bugs": {
+    "url": "https://github.com/flix-wg/crosstalk/issues"
+  },
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "xt": "dist/cli/main.js",
+    "crosstalk-relay": "dist/relay/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --exclude \"test/ada/**\"",
+    "ada": "vitest run --config test/ada/vitest.config.js",
+    "schemas": "npm run build && node scripts/export-schemas.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "smol-toml": "^1.9.1"
+  },
+  "devDependencies": {
+    "@types/eslint": "^9.6.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.1.0"
+  }
+}

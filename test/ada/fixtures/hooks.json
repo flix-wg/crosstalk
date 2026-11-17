@@ -1,0 +1,97 @@
+[
+  {
+    "harness": "claude-code",
+    "input": {
+      "session_id": "felix-recorded",
+      "hook_event_name": "SessionStart",
+      "source": "startup"
+    }
+  },
+  {
+    "harness": "claude-code",
+    "input": {
+      "session_id": "felix-recorded",
+      "hook_event_name": "UserPromptSubmit",
+      "prompt": "Continue"
+    }
+  },
+  {
+    "harness": "claude-code",
+    "decision": "deny",
+    "input": {
+      "session_id": "felix-recorded",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "git merge origin/research-agent"
+      }
+    }
+  },
+  {
+    "harness": "claude-code",
+    "input": {
+      "session_id": "felix-recorded",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Edit",
+      "tool_input": {
+        "file_path": "api/schema.py",
+        "old_string": "a",
+        "new_string": "b"
+      }
+    }
+  },
+  {
+    "harness": "codex",
+    "input": {
+      "session_id": "dana-recorded",
+      "hook_event_name": "SessionStart",
+      "model": "test",
+      "transcript_path": null
+    }
+  },
+  {
+    "harness": "codex",
+    "input": {
+      "session_id": "dana-recorded",
+      "hook_event_name": "UserPromptSubmit",
+      "prompt": "Continue",
+      "turn_id": "turn"
+    }
+  },
+  {
+    "harness": "codex",
+    "decision": "deny",
+    "input": {
+      "session_id": "dana-recorded",
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "xt answer question approve"
+      }
+    }
+  },
+  {
+    "harness": "codex",
+    "input": {
+      "session_id": "dana-recorded",
+      "hook_event_name": "Stop",
+      "stop_hook_active": false
+    }
+  },
+  {
+    "harness": "claude-code",
+    "input": {
+      "session_id": "felix-recorded",
+      "hook_event_name": "SessionEnd",
+      "reason": "exit"
+    }
+  },
+  {
+    "harness": "codex",
+    "input": {
+      "session_id": "dana-recorded",
+      "hook_event_name": "SessionEnd",
+      "reason": "exit"
+    }
+  }
+]

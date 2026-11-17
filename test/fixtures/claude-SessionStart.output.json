@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "continue": {
+      "type": "boolean"
+    },
+    "suppressOutput": {
+      "type": "boolean"
+    },
+    "stopReason": {
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "block"
+      ]
+    },
+    "systemMessage": {
+      "type": "string"
+    },
+    "terminalSequence": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "hookSpecificOutput": {
+      "type": "object",
+      "properties": {
+        "hookEventName": {
+          "const": "SessionStart"
+        },
+        "additionalContext": {
+          "type": "string"
+        },
+        "sessionTitle": {
+          "type": "string"
+        },
+        "initialUserMessage": {
+          "type": "string"
+        },
+        "watchPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reloadSkills": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hookEventName"
+      ]
+    }
+  }
+}

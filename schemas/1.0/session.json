@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v1/session.json",
+  "x-crosstalk-version": "1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tool",
+    "harness_session_id",
+    "machine",
+    "worktree",
+    "branch",
+    "head"
+  ],
+  "properties": {
+    "tool": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}$"
+    },
+    "harness_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "machine": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "worktree": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 4096
+    },
+    "branch": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 512
+    },
+    "head": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    }
+  }
+}

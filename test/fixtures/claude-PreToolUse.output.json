@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "continue": {
+      "type": "boolean"
+    },
+    "suppressOutput": {
+      "type": "boolean"
+    },
+    "stopReason": {
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "block"
+      ]
+    },
+    "systemMessage": {
+      "type": "string"
+    },
+    "terminalSequence": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "hookSpecificOutput": {
+      "type": "object",
+      "properties": {
+        "hookEventName": {
+          "const": "PreToolUse"
+        },
+        "additionalContext": {
+          "type": "string"
+        },
+        "permissionDecision": {
+          "enum": [
+            "allow",
+            "deny",
+            "ask",
+            "defer"
+          ]
+        },
+        "permissionDecisionReason": {
+          "type": "string"
+        },
+        "updatedInput": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "hookEventName"
+      ]
+    }
+  }
+}

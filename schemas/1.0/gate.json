@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v1/gate.json",
+  "x-crosstalk-version": "1.0",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "merge"
+        },
+        "source_branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "target_branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unknown_source": {
+          "const": false
+        }
+      },
+      "required": [
+        "kind",
+        "source_branch",
+        "source_head",
+        "target_branch"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "merge"
+        },
+        "source_branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "target_branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unknown_source": {
+          "const": true
+        }
+      },
+      "required": [
+        "kind",
+        "source_head",
+        "target_branch",
+        "unknown_source"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "deploy"
+        },
+        "env": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "artifact": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "lease_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "holder": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "kind",
+        "env",
+        "sha",
+        "artifact",
+        "lease_id",
+        "fence",
+        "holder"
+      ]
+    }
+  ]
+}

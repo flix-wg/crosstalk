@@ -1,0 +1,7 @@
+Harness output fixtures (c9, 2026-11-16):
+
+- `codex-*.output.json`: extracted verbatim JSON objects following `<event>.command.output` in `~/.codex/packages/standalone/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex`. Locate every occurrence (Stop also matches SubagentStop), decode the adjacent JSON, and select the matching `title`. Draft 7; defaults are intentionally not applied. The runtime additionally rejects plain allow and ask; tests enforce our stricter no-allow contract.
+- `claude-*.output.json`: translated from the recoverable Zod declarations in `~/.local/share/claude/versions/2.1.323` (`QX`, `ZX`, `t6`, `d6`, common `g6`, permission enum `dX`). No standalone JSON Schema was found. These cover the emitted command output fields; the unused internal permissionDisplay extension is omitted. Cross-checked with https://code.claude.com/docs/en/hooks. Tests separately forbid Stop continuation decisions.
+- Codex strings contain CODEX_THREAD_ID in exec/shell environment code and CODEX_SESSION_ID, but no evidence of either being injected into MCP initialize or server startup. Accept explicit IDs if supplied; otherwise bind once to the hook fallback. Automatic identity discovery for two pre-hook MCP startups is not established.
+
+Binary SHA-256: Codex `399ff69c431c066e40de318fba45c2b07f45a76b19939d247ee4828fc70c4215`; Claude `604d29a6869409106b6a1110bdadcc8b72e8654a5a865d23258f938a696e348e`.
