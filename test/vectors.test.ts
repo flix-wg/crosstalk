@@ -81,8 +81,8 @@ test("portable merge-gate snapshots reproduce through real SQLite", () => {
 
 test("lease script reproduces ordered outcomes including conflict and overlap details", () => {
   type Step = { name: string; actor: number; now: number; op: string; args: unknown; expected: Record<string, unknown> };
-  const { steps } = read<{ steps: Step[] }>("leases");
-  expect(leaseScript(core, openStore, steps)).toEqual(steps.map(s => s.expected));
+  const { steps, actors } = read<{ steps: Step[]; actors: unknown[] }>("leases");
+  expect(leaseScript(core, openStore, steps, actors)).toEqual(steps.map(s => s.expected));
   const by = (name: string) => steps.find(s => s.name === name)!.expected;
   expect(by("conflict")).toMatchObject({ code: "conflict", holder: "$holder0", doing: "Editing API" });
   expect(by("steal after expiry beside shared")).toMatchObject({ supersedes: "$lease0", overlaps: [{ mode: "shared" }] });

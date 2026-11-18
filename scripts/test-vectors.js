@@ -31,7 +31,7 @@ write('resource-keys', {
     let output; try { output = canonicalKey(input); } catch { output = 'invalid_resource'; } return { input, output };
   }),
   fold: ['path:Straße', 'path:STRASSE', 'path:ς', 'path:Σ', 'tree:API/İ', 'path:a/ς', 'path:aσ', 'path:ﬁle', 'path:K', 'path:ı'].map(input => ({ input, output: foldKey(input) })),
-  overlap: [['tree:API', 'path:api/x'], ['tree:api', 'path:apix/x'], ['path:Straße', 'path:STRASSE'], ['path:ς', 'path:σ'], ['path:a/ς', 'path:a/σ'], ['branch:Topic', 'branch:topic'], ['branch:topic', 'path:topic'], ['seq:build', 'seq:build'], ['tree:a/b', 'tree:A'], ['env:prod', 'env:stage']].map(([a, b]) => ({ a, b, output: overlaps(a, b) })),
+  overlap: [['tree:API', 'path:api/x'], ['tree:api', 'path:apix/x'], ['path:Straße', 'path:STRASSE'], ['path:ς', 'path:σ'], ['path:a/ς', 'path:a/σ'], ['path:Ᲊ', 'path:ᲊ'], ['branch:Topic', 'branch:topic'], ['branch:topic', 'path:topic'], ['seq:build', 'seq:build'], ['tree:a/b', 'tree:A'], ['env:prod', 'env:stage']].map(([a, b]) => ({ a, b, output: overlaps(a, b) })),
 });
 // RFC 8032 test key #1; public, deterministic and TEST ONLY.
 const seed_hex = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';

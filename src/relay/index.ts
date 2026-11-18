@@ -72,6 +72,8 @@ export function restoreDatabase(database: string, space: string): Result {
   } finally { store.close(); }
 }
 export async function startRelay(config: RelayConfig): Promise<{ url: string; close(): Promise<void> }> {
+  // Lease overlap folds keys with the runtime's case mappings; the protocol pins Unicode 17.0 (5.4).
+  if (process.versions.unicode !== "17.0") throw new Error("crosstalk relay requires a Node.js runtime with Unicode 17.0 case mappings, found " + process.versions.unicode);
   const host = config.host ?? "127.0.0.1";
   if (!["localhost", "127.0.0.1", "::1"].includes(host) && !config.trustProxy)
     throw new Error("Non-loopback HTTP requires trustProxy and TLS termination");

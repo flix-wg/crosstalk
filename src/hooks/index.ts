@@ -96,8 +96,11 @@ async function runHookInner(harness: string, event: string, stdin: string, start
         return false;
       });
       w.cache.set(cursorKey, events.at(-1)?.seq ?? cursor);
-      const items: unknown[] = relevant.map(e => ({ principal: e.actor.principal, ...e.body }));
-      if (relevant.some(e => e.body.type === "ask" && e.body.state === "open")) items.unshift(ASK_REMINDER);
+      // Open asks go first so truncation never drops a question the cursor has already passed.
+      const open = (e: Event) => e.body.type === "ask" && e.body.state === "open";
+      const ordered = [...relevant.filter(open), ...relevant.filter(e => !open(e))];
+      const items: unknown[] = ordered.map(e => ({ principal: e.actor.principal, ...e.body }));
+      if (ordered.some(open)) items.unshift(ASK_REMINDER);
       return relevant.length ? output(render(items, { offline, maxTotal: 1499 })) : output();
     }
     if (generic === "session_start") {

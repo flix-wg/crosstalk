@@ -114,6 +114,11 @@
       "output": true
     },
     {
+      "a": "path:Ᲊ",
+      "b": "path:ᲊ",
+      "output": true
+    },
+    {
       "a": "branch:Topic",
       "b": "branch:topic",
       "output": true

@@ -9,7 +9,7 @@ export const actors = ['codex', 'cli', 'mcp'].map((tool, i) => ({ principal: 'hu
 const walk = (v, f) => typeof v === 'string' ? f(v) : Array.isArray(v) ? v.map(x => walk(x, f))
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, f)])) : v;
 
-export function withSessions(core, openStore, run) {
+export function withSessions(core, openStore, run, list = actors) {
   const store = openStore(':memory:');
   const space = id(1);
   let serial = 100, time = 0;
@@ -21,7 +21,7 @@ export function withSessions(core, openStore, run) {
       core.bootstrapAdmin(tx, ctx, space, 'human:test', id(3));
       const auth = token => core.authenticate(tx, ctx, space, token);
       core.issueCredential(tx, ctx, auth(id(3)), 'human:test', 'agent', id(4));
-      const sessions = actors.map(({ tool, machine, doing }, i) => {
+      const sessions = list.map(({ tool, machine, doing }, i) => {
         const token = id(5 + i);
         core.openSession(tx, ctx, auth(id(4)), { tool, machine, harness_session_id: tool, worktree: null, head: null, branch: null }, token);
         const actor = auth(token);
@@ -38,19 +38,19 @@ export function withSessions(core, openStore, run) {
 }
 
 /** Runs lease steps with `$` placeholders and returns results with every id replaced by its placeholder. */
-export function leaseScript(core, openStore, steps) {
+export function leaseScript(core, openStore, steps, list = actors) {
   return withSessions(core, openStore, ({ sessions, command }) => {
     const names = new Map(), values = new Map();
     const name = (actual, placeholder) => { names.set(actual, placeholder); values.set(placeholder, actual); };
     sessions.forEach(({ session }, i) => {
       name(session, `$session${i}`);
-      name(`${actors[i].principal.split(':')[1]}/${actors[i].tool}/${session.slice(0, 4)}`, `$holder${i}`);
+      name(`${list[i].principal.split(':')[1]}/${list[i].tool}/${session.slice(0, 4)}`, `$holder${i}`);
     });
     let leases = 0;
     const neutral = s => names.get(s) ?? (/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(s) ? (name(s, `$lease${leases++}`), names.get(s)) : s);
     return steps.map(({ actor, now, op, args }) =>
       walk(command(actor, now, op, walk(args, s => values.get(s) ?? s)), neutral));
-  });
+  }, list);
 }
 
 export function deployVerdict(core, openStore, snapshot, input) {
