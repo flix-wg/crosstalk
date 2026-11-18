@@ -1,0 +1,62 @@
+name: action smoke
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE: ${{ github.event.pull_request.head.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci && npm run build
+      - name: Start a local relay
+        run: |
+          TRIAL="$RUNNER_TEMP/xt-trial"
+          echo "TRIAL=$TRIAL" >> "$GITHUB_ENV"
+          mkdir -p "$TRIAL"
+          node scripts/action-smoke.js start "$TRIAL"
+          node dist/relay/main.js serve "$TRIAL/relay.json" > "$TRIAL/relay.log" 2>&1 &
+          for i in $(seq 30); do grep -q "Relay fingerprint" "$TRIAL/relay.log" && break; sleep 1; done
+          echo "XT_TRIAL_PIN=$(sed -n 's/^Relay fingerprint //p' "$TRIAL/relay.log")" >> "$GITHUB_ENV"
+      - run: node scripts/action-smoke.js setup "$TRIAL"
+      - run: node scripts/action-smoke.js status "$TRIAL" "$SOURCE" "$HEAD_SHA" draft
+      - name: Draft source is blocked
+        id: draft
+        continue-on-error: true
+        uses: ./
+        with:
+          relay: ${{ env.XT_TRIAL_RELAY }}
+          relay-key: ${{ env.XT_TRIAL_PIN }}
+          space: ${{ env.XT_TRIAL_SPACE }}
+          key: ${{ env.XT_TRIAL_KEY }}
+      - run: node scripts/action-smoke.js status "$TRIAL" "$SOURCE" "$HEAD_SHA" ready
+      - name: Ready source passes
+        uses: ./
+        with:
+          relay: ${{ env.XT_TRIAL_RELAY }}
+          relay-key: ${{ env.XT_TRIAL_PIN }}
+          space: ${{ env.XT_TRIAL_SPACE }}
+          key: ${{ env.XT_TRIAL_KEY }}
+      - name: Advance reports reachability
+        uses: ./
+        with:
+          mode: advance
+          relay: ${{ env.XT_TRIAL_RELAY }}
+          relay-key: ${{ env.XT_TRIAL_PIN }}
+          space: ${{ env.XT_TRIAL_SPACE }}
+          key: ${{ env.XT_TRIAL_REMOTE_KEY }}
+          target: main
+      - name: Draft step must have failed
+        if: steps.draft.outcome != 'failure'
+        run: exit 1
+      - if: always()
+        run: cat "$TRIAL/relay.log"
