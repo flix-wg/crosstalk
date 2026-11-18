@@ -1,0 +1,273 @@
+{
+  "placeholders": "$sessionN and $holderN (display form) name the session of actor N; $leaseN names the Nth new lease_id in result order.",
+  "actors": [
+    {
+      "principal": "human:test",
+      "tool": "codex",
+      "machine": "test",
+      "doing": "Editing API",
+      "session": "$session0",
+      "holder": "$holder0"
+    },
+    {
+      "principal": "human:test",
+      "tool": "cli",
+      "machine": "test",
+      "doing": null,
+      "session": "$session1",
+      "holder": "$holder1"
+    },
+    {
+      "principal": "human:test",
+      "tool": "mcp",
+      "machine": "test",
+      "doing": null,
+      "session": "$session2",
+      "holder": "$holder2"
+    }
+  ],
+  "steps": [
+    {
+      "name": "exclusive claim",
+      "actor": 0,
+      "now": 0,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "tree:api/"
+        ],
+        "ttl_s": 30
+      },
+      "expected": {
+        "mode": "exclusive",
+        "lease_id": "$lease0",
+        "holder": "$session0",
+        "resources": [
+          "tree:api/"
+        ],
+        "state": "held",
+        "fence": 1,
+        "rev": 1,
+        "note": null,
+        "supersedes": null,
+        "expires_at": "1970-01-01T00:00:30.000Z",
+        "expires_in_s": 30,
+        "overlaps": []
+      }
+    },
+    {
+      "name": "renew",
+      "actor": 0,
+      "now": 1000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "tree:api/"
+        ],
+        "ttl_s": 30
+      },
+      "expected": {
+        "mode": "exclusive",
+        "lease_id": "$lease0",
+        "holder": "$session0",
+        "resources": [
+          "tree:api/"
+        ],
+        "state": "held",
+        "fence": 1,
+        "rev": 2,
+        "note": null,
+        "supersedes": null,
+        "expires_at": "1970-01-01T00:00:31.000Z",
+        "expires_in_s": 30,
+        "overlaps": []
+      }
+    },
+    {
+      "name": "conflict",
+      "actor": 1,
+      "now": 2000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "tree:api/"
+        ],
+        "ttl_s": 30
+      },
+      "expected": {
+        "code": "conflict",
+        "collisions": [
+          {
+            "mine": "tree:api/",
+            "held": "tree:api/"
+          }
+        ],
+        "holder": "$holder0",
+        "expires_at": "1970-01-01T00:00:31.000Z",
+        "session": "$session0",
+        "lease_id": "$lease0",
+        "rev": 2,
+        "note": null,
+        "age_s": 2,
+        "expires_in_s": 29,
+        "doing": "Editing API"
+      }
+    },
+    {
+      "name": "shared beside exclusive",
+      "actor": 1,
+      "now": 2000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "path:api/index"
+        ],
+        "mode": "shared",
+        "note": "Reviewing"
+      },
+      "expected": {
+        "mode": "shared",
+        "lease_id": "$lease1",
+        "holder": "$session1",
+        "resources": [
+          "path:api/index"
+        ],
+        "state": "held",
+        "fence": 2,
+        "rev": 1,
+        "note": "Reviewing",
+        "supersedes": null,
+        "expires_at": "1970-01-01T01:00:02.000Z",
+        "expires_in_s": 3600,
+        "overlaps": [
+          {
+            "lease_id": "$lease0",
+            "holder": "$holder0",
+            "mode": "exclusive",
+            "note": null,
+            "resources": [
+              "tree:api/"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "steal after expiry beside shared",
+      "actor": 2,
+      "now": 31000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "tree:api/"
+        ],
+        "ttl_s": 30,
+        "expect": {
+          "lease_id": "$lease0",
+          "rev": 2
+        }
+      },
+      "expected": {
+        "mode": "exclusive",
+        "lease_id": "$lease2",
+        "holder": "$session2",
+        "resources": [
+          "tree:api/"
+        ],
+        "state": "held",
+        "fence": 3,
+        "rev": 1,
+        "note": null,
+        "supersedes": "$lease0",
+        "expires_at": "1970-01-01T00:01:01.000Z",
+        "expires_in_s": 30,
+        "overlaps": [
+          {
+            "lease_id": "$lease1",
+            "holder": "$holder1",
+            "mode": "shared",
+            "note": "Reviewing",
+            "resources": [
+              "path:api/index"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "shared rejects env",
+      "actor": 1,
+      "now": 31000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "env:prod"
+        ],
+        "mode": "shared",
+        "note": "Reviewing"
+      },
+      "expected": {
+        "code": "invalid_resource"
+      }
+    },
+    {
+      "name": "shared rejects expect",
+      "actor": 1,
+      "now": 31000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "path:api/index"
+        ],
+        "mode": "shared",
+        "note": "Reviewing",
+        "expect": {
+          "lease_id": "$lease0",
+          "rev": 2
+        }
+      },
+      "expected": {
+        "code": "invalid_request"
+      }
+    },
+    {
+      "name": "exclusive ttl over 900",
+      "actor": 1,
+      "now": 31000,
+      "op": "lease.claim",
+      "args": {
+        "resources": [
+          "tree:api/"
+        ],
+        "ttl_s": 901
+      },
+      "expected": {
+        "code": "invalid_request"
+      }
+    },
+    {
+      "name": "release",
+      "actor": 2,
+      "now": 31000,
+      "op": "lease.release",
+      "args": {
+        "lease_id": "$lease2"
+      },
+      "expected": {
+        "mode": "exclusive",
+        "lease_id": "$lease2",
+        "holder": "$session2",
+        "resources": [
+          "tree:api/"
+        ],
+        "state": "released",
+        "fence": 3,
+        "rev": 2,
+        "note": null,
+        "supersedes": "$lease0",
+        "expires_at": "1970-01-01T00:01:01.000Z",
+        "expires_in_s": 30
+      }
+    }
+  ]
+}

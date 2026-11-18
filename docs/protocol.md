@@ -127,7 +127,7 @@ A session is one conversation or job: `session:<uuid>` with owner principal, `to
 6. `tree:` keys end in exactly one `/` (a missing trailing slash is added); `tree:/` (the root) is invalid.
 7. The canonical key is at most 512 bytes of UTF-8.
 
-`path:` and `tree:` names are repository-relative POSIX paths. **Overlap is compared case-insensitively** on the canonical key after Unicode case folding (implementations SHOULD fold by upper-casing and then lower-casing, which merges contextual forms). Two keys of a single request that fold to the same value are a duplicate and the request MUST be rejected with `invalid_resource`.
+`path:` and `tree:` names are repository-relative POSIX paths. **Overlap is compared case-insensitively** on the canonical key using the following fold: implementations MUST apply locale-independent ECMAScript `toUpperCase()` followed by `toLowerCase()` to the entire canonical key. The fold is applied to the whole key, so its context includes the kind prefix. For example, `path:Straße` folds to `path:strasse`, `path:a/ς` folds to `path:a/σ` and `path:aσ` folds to `path:aς`; either sigma form therefore overlaps the other at the same position. The result depends on the Unicode version of the implementation; the vectors use Unicode 17.0 case mappings. Two keys of a single request that fold to the same value are a duplicate and the request MUST be rejected with `invalid_resource`.
 
 ### 5.5 Work announcements
 
@@ -245,7 +245,7 @@ Paths below the space prefix unless they start with `/v2/` or `/.well-known/`.
 | `POST /sessions/{id}/release` | that session | Same as command `session.release`; optional `request_id`. |
 | `POST /commands` | session, human key, ci key | All mutations (6.5, section 7). |
 | `GET /receipts/{request_id}` | same principal and session as the command | Outcome of an earlier command. |
-| `GET /identity` | any | `{principal, role, kind, session}` of the caller. |
+| `GET /identity` | any | `{principal, role, kind, session?}` of the caller. |
 | `GET /board` | session, ci key, human admin key | Snapshot (6.4.2). |
 | `GET /reservations` | session, ci key, human admin key | Caller principal’s reservations: array of `{sequence, value, abandoned}`; `abandoned` is 0 or 1. Includes reservations held by its other sessions. |
 | `GET /inbox` | session | `{cursor, messages: [{seq, body}], asks}` (5.8). |
@@ -262,7 +262,21 @@ Result: `{session_id, token, expires_at, heartbeat_s: 30, cursor}` where `cursor
 
 #### 6.4.2 Board
 
-The board is a read-only snapshot as of the envelope's `seq`. It contains at least: `frozen`; `coordination` (`branches`, `policy`); `presence`; `leases` (active ones plus recent tombstones); `asks` (open asks and approval asks that still form requirements, plus recent finished ones); `messages`, `decisions` (last 24 h); `reservations`; companion fields `deployments` (last 24 h), `live` and `audit` when implemented; and `more`, a map from collection name to `true` when entries were omitted. History collections hold at most 100 entries. Relevance sorting is a client concern.
+The board is a read-only snapshot as of the envelope's `seq`; the response is `{epoch, seq, result}` and the board schema (Appendix A) is normative for item shapes. `result` has these members:
+
+| Member | Content |
+|---|---|
+| `frozen` | Boolean. |
+| `coordination` | `{branches, policy}`: all `branch_status` bodies and the current policy (`{}` if none was set). |
+| `presence` | Live sessions plus recent offline ones: `{session, principal, tool, device, doing, state, expires_at}`, `expires_at` in epoch milliseconds. `doing` is the note of the session's newest held shared lease, else its heartbeat text. |
+| `leases` | Pending and held leases plus tombstones of the last 24 h: `{mode, lease_id, holder, resources, state, fence, rev, note, supersedes, expires_at, expires_in_s}`, `note` `null` when absent. |
+| `asks` | Open asks and approval asks that still form requirements, plus recent finished ones (`ask` bodies). |
+| `messages`, `decisions` | Bodies from the last 24 h, newest first. |
+| `reservations` | `{sequence, value, holder, abandoned}`, newest first. |
+| `deployments`, `live`, `audit` | Companion members, present when implemented: deployment bodies of the last 24 h; a map from env to `{live_artifact, live_sha, exec_seq}`; `{head, exported_seq, lag}`. |
+| `more` | Booleans `presence`, `leases`, `asks`, `messages`, `decisions`, `deployments`, `reservations`; `true` means entries were omitted. |
+
+History collections (offline presence, lease tombstones, finished asks, messages, decisions, deployments, reservations) hold at most 100 entries. Relevance sorting is a client concern.
 
 ### 6.5 Commands, receipts and idempotency
 
@@ -354,6 +368,8 @@ Defined by the [deploy-executor companion](companions/deploy-executor.md).
 | `ref.advance` | `ci:remote`, ci key direct | **`ref`**, **`old`**, **`new`**, **`commits`** | Add `(ref, sha)` pairs to reachability. No event. |
 | `ref.seed` | admin | **`ref`**, **`commits`** | As `ref.advance`; event `admin`/`ref_seeded`. |
 
+A `post-receive` hook sends `ref.advance` in chunks so that each request stays under the size limit, with a deterministic `request_id` so that redelivery is deduplicated by the receipt rules (6.5). The commits are the output of `git rev-list old..new`, or `git rev-list new` when `old` is all zeros, in that order, split into successive chunks of at most 200. For each chunk, the arguments are `{ref, old, new, commits}` in that member order, with `ref` the full ref name, `old` set to `null` for branch creation and `commits` the chunk. The request ID is derived from SHA-256 over the UTF-8 bytes of the space ID, the string `/advance/` and the compact ECMAScript `JSON.stringify` serialization of those arguments: take the first 32 lowercase hex digits, replace the 13th and the 17th digit (one-based) with `4` and `8`, and insert hyphens after digits 8, 12, 16 and 20.
+
 ## 8. Events
 
 ### 8.1 Envelope
@@ -433,9 +449,9 @@ For an unknown source the verdict is policy `unknown_source` (default block), un
 - anything else → unknown source.
 - additionally, for every board status in `wip` or `draft`, inspect both its recorded head and the post-push tip of `refs/heads/<branch>`, if present. Each candidate that is an ancestor of `new` and not of `old` (or `old` is zero) is an additional source, with that branch and candidate head. Skip branch/head pairs already resolved above. Missing local candidate objects count as not reachable. Normal merge checks, including overrides bound to that exact head, apply.
 
-Only the draft head or tip is tracked: cherry-picks and merges of older draft commits are not detected. Pre-push uses the same source checks. A CI required check evaluates `base → head` for the target using the explicit PR source branch and head plus these draft-ancestry sources; CI uses fetched remote heads when local heads are absent. Unprotected targets pass with a note. The check uses a CI key from `CROSSTALK_KEY` and explicitly supplied relay URL, key fingerprint and space, never checkout configuration. Exit status is 0 for pass/warn (warnings printed), 1 for block or inability to confirm, and 2 for usage errors.
+A draft head that is also a commit of a ready branch still blocks that branch, even when the draft has no commits of its own (stacked work); Git cannot tell this apart from a ready branch that absorbed draft commits. The draft owner moves the status to a commit of their own, or a human records an override bound to that head. Only the draft head or tip is tracked: cherry-picks and merges of older draft commits are not detected. Pre-push uses the same source checks. A CI required check evaluates `base → head` for the target using the explicit PR source branch and head plus these draft-ancestry sources; CI uses fetched remote heads when local heads are absent. Unprotected targets pass with a note. The check uses a CI key from `CROSSTALK_KEY` and explicitly supplied relay URL, key fingerprint and space, never checkout configuration. Exit status is 0 for pass/warn (warnings printed), 1 for block or inability to confirm, and 2 for usage errors.
 
-Every source is evaluated; any `block` rejects the whole push. Non-fast-forward updates of protected branches MUST be rejected. Ref names are handled as bytes. If the relay cannot be reached or answers an error, the hook MUST reject (fail closed). After acceptance, `post-receive` MUST send `ref.advance` and SHOULD notify owners once when a `wip`/`draft` head became reachable from a protected branch.
+Every source is evaluated; any `block` rejects the whole push. Non-fast-forward updates of protected branches MUST be rejected. Ref names are handled as bytes. If the relay cannot be reached or answers an error, the hook MUST reject (fail closed). After acceptance, `post-receive` MUST send `ref.advance` in the chunks and with the request IDs of 7.4, and SHOULD notify owners once when a `wip`/`draft` head became reachable from a protected branch.
 
 ### 9.3 Deploy gate
 
@@ -617,6 +633,8 @@ A minor version MUST NOT: remove or rename anything; make an optional field requ
 
 Fail-closed defaults apply: an unknown gate verdict is `block`; an unknown lease state means "not held"; an unknown ask state means "not answered".
 
+Relay-generated gate reasons, conflict messages and notification text are informative. Clients MUST NOT parse them to determine protocol behavior.
+
 ### 15.5 Schemas and `$id`
 
 - Each schema has an `$id` of the form `https://flix-wg.github.io/crosstalk/schema/v<major>/<name>.json`. The `$id` names the major only. The document at that URL MUST always be the newest minor of that major.
@@ -757,7 +775,7 @@ Bindings for Cursor, OpenCode, Pi, Hermes, Gemini CLI and others follow the same
 
 ## Appendix A: Schema index
 
-The event and command `$id`s are those of the reference implementation. The other four are assigned by this document.
+The reference implementation generates all of these documents from its validators; 15.5 governs `$id`s and snapshots.
 
 | Schema | `$id` | Describes |
 |---|---|---|
@@ -767,6 +785,9 @@ The event and command `$id`s are those of the reference implementation. The othe
 | Executor install (deploy-executor companion) | `https://flix-wg.github.io/crosstalk/schema/v2/install.json` | `POST /executor/install` body: `{epoch, lease_id, env, fence, max_fence, dry_run}`. |
 | Gate input | `https://flix-wg.github.io/crosstalk/schema/v2/gate.json` | `POST /check` body (without `space`, `now`). |
 | Deploy input, ticket (deploy-executor companion) | `https://flix-wg.github.io/crosstalk/schema/v2/deploy.json` | Ticket request `{env, sha, artifact, lease_id, fence, op}`, signed ticket `{payload, signature}`. |
+| Board response | `https://flix-wg.github.io/crosstalk/schema/v2/board.json` | Successful `GET /board` response. |
+| Inbox response | `https://flix-wg.github.io/crosstalk/schema/v2/inbox.json` | Successful `GET /inbox` response. |
+| Identity response | `https://flix-wg.github.io/crosstalk/schema/v2/identity.json` | Successful `GET /identity` response. |
 
 ## Appendix B: References
 
@@ -777,4 +798,4 @@ The event and command `$id`s are those of the reference implementation. The othe
 
 ## Appendix C: Test vectors
 
-[Protocol 2.0 test vectors](../test-vectors/2.0/) contain JSON inputs and expected outputs for JCS, three chained events, resource canonicalization and overlap, Ed25519 signatures (TEST-ONLY seed), and merge gates. They are normative interoperability examples; the rules above govern other inputs. Published copies live at `https://flix-wg.github.io/crosstalk/test-vectors/2.0/`. Regenerate the reference outputs with `npm run vectors`.
+[Protocol 2.0 test vectors](../test-vectors/2.0/) contain JSON inputs and expected outputs in `canonical-json.json`, `event-hash.json` (chain and verification failures), `resource-keys.json`, `signatures.json` (TEST-ONLY seed), `merge-gate.json`, `leases.json`, `deploy-gate.json` and `source-resolution.json`. They are normative interoperability examples; the rules above govern other inputs. Published copies live at `https://flix-wg.github.io/crosstalk/test-vectors/2.0/`. In `leases.json`, `$sessionN` and `$holderN` stand for actor N's session id and display form, and `$leaseN` for the Nth new lease id in result order; implementations substitute their own ids. `source-resolution.json` builds a repository by running `commands` in order with `env`; `save` binds the trimmed output to a `$name` used by later arguments, `refs` and `statuses`, and `expected` lists the resolved sources, then the draft-ancestry sources, with object ids written as `$name`. `resource-keys.json` `fold` gives the overlap fold, including the final-sigma context. Regenerate the reference outputs with `npm run vectors`.

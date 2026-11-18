@@ -1,4 +1,5 @@
 import { overlaps } from "../schema/index.js";
+export const ASK_REMINDER = "Only the addressed human can answer these asks. The agent cannot answer.";
 export function leaseHolder(holder: string, presence: { session: string; principal: string; tool?: string }[] = []): string {
   const peer = presence.find(p => p.session === holder);
   return peer ? `${peer.principal} (${peer.tool ?? "unknown"}, ${holder.slice(0, 8)})` : `unknown (unknown, ${holder.slice(0, 8)})`;
@@ -21,7 +22,7 @@ export function relevantBoard(snapshot: unknown, branch: string | null, session?
 }
 
 /** Small hook digest, excluding unrelated message history and deployment data. */
-export function hookDigest(snapshot: unknown, branch: string | null, session: string, touched: string[]): unknown {
+export function hookDigest(snapshot: unknown, branch: string | null, session: string, touched: string[], messages?: unknown[]): unknown {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
   const board = snapshot as Record<string, unknown>;
   const rows = (v: unknown): Record<string, unknown>[] => Array.isArray(v) ? v : [];
@@ -29,8 +30,11 @@ export function hookDigest(snapshot: unknown, branch: string | null, session: st
   const coordination = board.coordination as Record<string, unknown> | undefined;
   const policy = coordination?.policy as { protected_branches?: string[] } | undefined;
   const relevant = (r: unknown) => typeof r === "string" && ((branch !== null && overlaps(r, "branch:" + branch)) || touched.some(p => overlaps(r, "path:" + p)));
+  const asks = rows(board.asks).filter(a => a.to === principal && a.state === "open");
   return {
-    asks: rows(board.asks).filter(a => a.to === principal && a.state === "open"),
+    ...(asks.length ? { reminder: ASK_REMINDER } : {}),
+    asks,
+    ...(messages ? { messages } : {}),
     branches: rows(coordination?.branches)
       .filter(b => b.branch === branch || policy?.protected_branches?.includes(String(b.branch)) || ["draft", "wip"].includes(String(b.state)))
       .map(b => ({ branch: b.branch, state: b.state, owner: b.owner, pending: b.pending })),

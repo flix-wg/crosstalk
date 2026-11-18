@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v2/identity.json",
+  "x-crosstalk-version": "2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "epoch": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "principal": {
+          "type": "string",
+          "pattern": "^(human|ci):[a-z0-9][a-z0-9-]{0,38}$"
+        },
+        "kind": {
+          "enum": [
+            "human",
+            "agent",
+            "ci"
+          ]
+        },
+        "role": {
+          "enum": [
+            "admin",
+            "member",
+            "ci"
+          ]
+        },
+        "session": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "principal",
+        "role",
+        "kind"
+      ]
+    }
+  },
+  "required": [
+    "epoch",
+    "seq",
+    "result"
+  ]
+}

@@ -66,8 +66,8 @@ export function draftSources(cwd: string, update: Update, refs: Map<string, stri
     if (queueBranch(status.branch) || !["wip", "draft"].includes(status.state)) continue;
     for (const head of new Set([status.head, refs.get("refs/heads/" + status.branch)])) {
       if (!head || covered.some(s => s.source_branch === status.branch && s.source_head === head)) continue;
-      if (ancestor(cwd, head, update.new) && (zero(update.old) || !ancestor(cwd, head, update.old)))
-        sources.push({ source_branch: status.branch, source_head: head });
+      if (!ancestor(cwd, head, update.new) || (!zero(update.old) && ancestor(cwd, head, update.old))) continue;
+      sources.push({ source_branch: status.branch, source_head: head });
     }
   }
   return sources;

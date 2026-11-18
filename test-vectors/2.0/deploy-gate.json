@@ -1,0 +1,313 @@
+{
+  "cases": [
+    {
+      "name": "held lease",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [],
+        "policy": {},
+        "reachability": []
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "wrong fence",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [],
+        "policy": {},
+        "reachability": []
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 2
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "wrong holder",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [],
+        "policy": {},
+        "reachability": []
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000090",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "expired",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [],
+        "policy": {},
+        "reachability": []
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 300000,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "unsatisfied requirement",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [
+          {
+            "type": "ask",
+            "ask_id": "00000000-0000-4000-8000-000000000020",
+            "kind": "approval",
+            "state": "open",
+            "rev": 1,
+            "to": "human:test",
+            "question": "Ship?",
+            "blocks": [
+              "deploy:env:prod"
+            ],
+            "bound_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bound_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "policy": {},
+        "reachability": []
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "require_on reachable",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [],
+        "policy": {
+          "envs": {
+            "prod": {
+              "require_on": "main"
+            }
+          }
+        },
+        "reachability": [
+          {
+            "ref": "main",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "pass"
+    },
+    {
+      "name": "require_on not reachable",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": false,
+        "asks": [],
+        "policy": {
+          "envs": {
+            "prod": {
+              "require_on": "main"
+            }
+          }
+        },
+        "reachability": [
+          {
+            "ref": "main",
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ]
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "block"
+    },
+    {
+      "name": "frozen",
+      "snapshot": {
+        "lease": {
+          "lease_id": "00000000-0000-4000-8000-000000000107",
+          "holder": "00000000-0000-4000-8000-000000000103",
+          "resources": [
+            "env:prod"
+          ],
+          "mode": "exclusive",
+          "state": "held",
+          "fence": 1,
+          "rev": 1,
+          "note": null,
+          "expires_at": "1970-01-01T00:05:00.000Z"
+        },
+        "frozen": true,
+        "asks": [],
+        "policy": {},
+        "reachability": []
+      },
+      "input": {
+        "kind": "deploy",
+        "space": "00000000-0000-4000-8000-000000000001",
+        "now": 0,
+        "env": "prod",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "holder": "00000000-0000-4000-8000-000000000103",
+        "lease_id": "00000000-0000-4000-8000-000000000107",
+        "fence": 1
+      },
+      "verdict": "block"
+    }
+  ]
+}

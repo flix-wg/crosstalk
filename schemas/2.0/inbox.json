@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v2/inbox.json",
+  "x-crosstalk-version": "2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "epoch": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "body": {
+                "$ref": "event.json#/$defs/message"
+              }
+            },
+            "required": [
+              "seq",
+              "body"
+            ]
+          }
+        },
+        "asks": {
+          "type": "array",
+          "items": {
+            "$ref": "event.json#/$defs/ask"
+          }
+        }
+      },
+      "required": [
+        "cursor",
+        "messages",
+        "asks"
+      ]
+    }
+  },
+  "required": [
+    "epoch",
+    "seq",
+    "result"
+  ]
+}

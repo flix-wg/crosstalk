@@ -26,8 +26,8 @@ for (const [major, minor] of versions) {
   newest.set(major, `${major}.${minor}`);
 }
 for (const [major, version] of newest) cpSync(join(snapshots, version), join(out, "schema", `v${major}`), { recursive: true });
-const names = Object.keys(publishedSchemas());
-const links = [...newest.keys()].flatMap(major => names.map(name => `<li><a href="schema/v${major}/${name}.json">${SCHEMA_BASE}v${major}/${name}.json</a></li>`)).join("\n");
+const names = major => readdirSync(join(out, "schema", `v${major}`)).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5));
+const links = [...newest.keys()].flatMap(major => names(major).map(name => `<li><a href="schema/v${major}/${name}.json">${SCHEMA_BASE}v${major}/${name}.json</a></li>`)).join("\n");
 const snapshotLinks = versions.map(([major, minor]) => `<a href="schema/${major}.${minor}/">${major}.${minor}</a>`).join(", ");
 writeFileSync(join(out, "index.html"), `<!doctype html><meta charset="utf-8"><title>crosstalk schemas</title>
 <h1>crosstalk protocol schemas</h1>

@@ -1,14 +1,17 @@
 // Portable examples generated from the reference implementation. Never use the TEST-ONLY key outside tests.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
-import { jcs, eventHash, GENESIS_PREV_HASH, canonicalKey, overlaps, sign } from '../dist/schema/index.js';
+import { jcs, eventHash, GENESIS_PREV_HASH, canonicalKey, foldKey, overlaps, sign } from '../dist/schema/index.js';
 import { migrate, createSpace, evaluateGate } from '../dist/core/index.js';
 import { openStore } from '../dist/store-sqlite/index.js';
+import * as core from '../dist/core/index.js';
+import * as sources from '../dist/client/merge-gate.js';
+import { id, actors, withSessions, leaseScript, deployVerdict, resolveFixture } from './vector-fixtures.js';
 
 const dir = 'test-vectors/2.0';
 mkdirSync(dir, { recursive: true });
 const write = (name, value) => writeFileSync(`${dir}/${name}.json`, JSON.stringify(value, null, 2) + '\n');
-const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
 const space = id(1), epoch = id(2), head = 'a'.repeat(40), next = 'b'.repeat(40);
 // input_json preserves negative zero, which JSON.stringify would otherwise erase.
 const canonical = ['{"z":"é😀","a":"e\\u0301"}', '{"large":1e21,"negative_zero":-0,"small":1e-7,"decimal":0.1}', '{"z":{"b":2,"a":1},"a":[{"y":true,"x":null}]}'];
@@ -19,12 +22,16 @@ const events = [1, 2, 3].map(seq => {
   const hash = eventHash(prev, input); prev = hash;
   return { input, hash };
 });
-write('event-hash', events);
+write('event-hash', { chain: events, invalid: [
+  { name: 'tampered body', previous: GENESIS_PREV_HASH, ...events[0], input: { ...events[0].input, body: events[1].input.body } },
+  { name: 'wrong previous hash', previous: GENESIS_PREV_HASH, ...events[1] },
+] });
 write('resource-keys', {
   canonical: ['tree:api', 'path:cafe\u0301/file', 'branch:Topic', 'env:prod', 'seq:build_1', 'path:a/../b', 'tree:/', 'path:a//b', 'env:Prod', 'res:two words', 'path:a\\b'].map(input => {
     let output; try { output = canonicalKey(input); } catch { output = 'invalid_resource'; } return { input, output };
   }),
-  overlap: [['tree:API', 'path:api/x'], ['tree:api', 'path:apix/x'], ['path:Straße', 'path:STRASSE'], ['path:ς', 'path:σ'], ['branch:Topic', 'branch:topic'], ['branch:topic', 'path:topic'], ['seq:build', 'seq:build'], ['tree:a/b', 'tree:A'], ['env:prod', 'env:stage']].map(([a, b]) => ({ a, b, output: overlaps(a, b) })),
+  fold: ['path:Straße', 'path:STRASSE', 'path:ς', 'path:Σ', 'tree:API/İ', 'path:a/ς', 'path:aσ', 'path:ﬁle', 'path:K', 'path:ı'].map(input => ({ input, output: foldKey(input) })),
+  overlap: [['tree:API', 'path:api/x'], ['tree:api', 'path:apix/x'], ['path:Straße', 'path:STRASSE'], ['path:ς', 'path:σ'], ['path:a/ς', 'path:a/σ'], ['branch:Topic', 'branch:topic'], ['branch:topic', 'path:topic'], ['seq:build', 'seq:build'], ['tree:a/b', 'tree:A'], ['env:prod', 'env:stage']].map(([a, b]) => ({ a, b, output: overlaps(a, b) })),
 });
 // RFC 8032 test key #1; public, deterministic and TEST ONLY.
 const seed_hex = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
@@ -69,3 +76,60 @@ const vectors = cases.map(([name, branch_status, asks = [], decisions = [], poli
   } finally { store.close(); }
 });
 write('merge-gate', { decision_order: 'oldest first (increasing event seq)', cases: vectors });
+
+const exclusive = { resources: ['tree:api/'], ttl_s: 30 };
+const shared = { resources: ['path:api/index'], mode: 'shared', note: 'Reviewing' };
+const takeover = { lease_id: '$lease0', rev: 2 };
+const script = [
+  ['exclusive claim', 0, 0, 'lease.claim', exclusive],
+  ['renew', 0, 1000, 'lease.claim', exclusive],
+  ['conflict', 1, 2000, 'lease.claim', exclusive],
+  ['shared beside exclusive', 1, 2000, 'lease.claim', shared],
+  ['steal after expiry beside shared', 2, 31000, 'lease.claim', { ...exclusive, expect: takeover }],
+  ['shared rejects env', 1, 31000, 'lease.claim', { ...shared, resources: ['env:prod'] }],
+  ['shared rejects expect', 1, 31000, 'lease.claim', { ...shared, expect: takeover }],
+  ['exclusive ttl over 900', 1, 31000, 'lease.claim', { ...exclusive, ttl_s: 901 }],
+  ['release', 2, 31000, 'lease.release', { lease_id: '$lease2' }],
+].map(([name, actor, now, op, args]) => ({ name, actor, now, op, args }));
+const results = leaseScript(core, openStore, script);
+write('leases', {
+  placeholders: '$sessionN and $holderN (display form) name the session of actor N; $leaseN names the Nth new lease_id in result order.',
+  actors: actors.map((a, i) => ({ ...a, session: `$session${i}`, holder: `$holder${i}` })),
+  steps: script.map((step, i) => ({ ...step, expected: results[i] })),
+});
+
+const lease = withSessions(core, openStore, ({ command }) => {
+  const { lease_id, holder, resources, mode, state, fence, rev, note, expires_at } = command(0, 0, 'lease.claim', { resources: ['env:prod'] });
+  return { lease_id, holder, resources, mode, state, fence, rev, note, expires_at };
+});
+const deploy = { kind: 'deploy', space, now: 0, env: 'prod', sha: head, artifact: payload.artifact, holder: lease.holder, lease_id: lease.lease_id, fence: lease.fence };
+const requireOn = { envs: { prod: { require_on: 'main' } } };
+const deployCases = [
+  ['held lease'], ['wrong fence', { fence: 2 }], ['wrong holder', { holder: id(90) }], ['expired', { now: 300000 }],
+  ['unsatisfied requirement', {}, { asks: [{ ...ask(), blocks: ['deploy:env:prod'], bound_artifact: payload.artifact }] }],
+  ['require_on reachable', {}, { policy: requireOn, reachability: [{ ref: 'main', sha: head }] }],
+  ['require_on not reachable', {}, { policy: requireOn, reachability: [{ ref: 'main', sha: next }] }],
+  ['frozen', {}, { frozen: true }],
+].map(([name, delta, change]) => {
+  const snapshot = { lease, frozen: false, asks: [], policy: {}, reachability: [], ...change }, input = { ...deploy, ...delta };
+  return { name, snapshot, input, verdict: deployVerdict(core, openStore, snapshot, input) };
+});
+write('deploy-gate', { cases: deployCases });
+
+const commands = [{ args: ['init', '-q', '--bare', '--object-format=sha1', '-b', 'main'] }, { args: ['mktree'], save: '$tree' }];
+for (const [tip, ...parents] of [['base'], ['b1', 'base'], ['b2', 'b1'], ['a', 'b2'], ['merge', 'base', 'b2']]) {
+  commands.push({ args: ['commit-tree', '$tree', ...parents.flatMap(p => ['-p', '$' + p]), '-m', tip], save: '$' + tip });
+}
+const status = (name, state, at) => ({ ...branch(state, at), branch: name });
+const b = { 'refs/heads/B': '$b2' };
+const sourceCases = [
+  ['direct tip', '$b2', b], ['merge parent', '$merge', b], ['unknown', '$a', {}],
+  ['queue ignored', '$a', { 'refs/heads/gh-readonly-queue/main/q': '$a' }],
+  ['draft ancestry despite unknown source', '$a', {}, [status('A', 'wip', '$b1')]],
+  ['stacked draft without own commits still blocks', '$merge', { ...b, 'refs/heads/A': '$b1' }, [status('B', 'ready', '$b2'), status('A', 'wip', '$b2')]],
+].map(([name, tip, refs, statuses = []]) => ({ name, update: { ref: 'refs/heads/main', old: '$base', new: tip }, refs, statuses }));
+const env = { GIT_AUTHOR_NAME: 'vector', GIT_COMMITTER_NAME: 'vector', GIT_AUTHOR_EMAIL: 'vector@example.org',
+  GIT_COMMITTER_EMAIL: 'vector@example.org', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
+const fixture = { protected: ['main'], env, commands, cases: sourceCases };
+const expected = resolveFixture(sources, fixture);
+write('source-resolution', { ...fixture, cases: sourceCases.map((item, i) => ({ ...item, expected: expected[i] })) });

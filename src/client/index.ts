@@ -16,7 +16,7 @@ export { relevantBoard } from "./presentation.js";
 export { verifyRelaySignature } from "./signature.js";
 export { editConflicts } from "./coordination.js";
 export type { CoordinationBoard } from "./coordination.js";
-export { hookDigest } from "./presentation.js";
+export { hookDigest, ASK_REMINDER } from "./presentation.js";
 
 export { readTerminal, requireHumanTTY } from "./tty.js";
 

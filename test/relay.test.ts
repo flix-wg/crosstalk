@@ -1,3 +1,7 @@
+import { Ajv2020 } from "ajv/dist/2020.js";
+import { fullFormats } from "ajv-formats/dist/formats.js";
+import { publishedSchemas, SCHEMA_BASE } from "../src/schema/index.js";
+import { relevantBoard } from "../src/client/index.js";
 import { afterEach, expect, test } from "vitest";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -148,4 +152,36 @@ test("HTTP discovery and version negotiation preserve strict commands", async ()
     expect(response.headers.get("Crosstalk-Protocol")).toBe("2.0");
     expect((await response.json()).error.code).toBe(code);
   }
+});
+
+test("board, inbox and identity responses match their schemas and surface addressed asks", async () => {
+  const f = await fixture(), session = await f.session();
+  const send = async (token: string, op: string, args: unknown) => {
+    const sent = await f.call("/commands", token, { request_id: randomUUID(), op, args });
+    expect(sent.status, JSON.stringify(sent.data)).toBe(200);
+    return sent;
+  };
+  await send(f.humanKey, "policy.set", { sequences: { adr: "docs/adr-(\\d+).md" }, protected_branches: ["main"] });
+  await send(session, "lease.claim", { mode: "shared", resources: ["path:docs/a.md"], note: "reviewing" });
+  await send(session, "lease.claim", { resources: ["path:src/b.ts"] });
+  await send(session, "reserve", { sequence: "seq:adr" });
+  await send(session, "branch.set", { branch: "feat", state: "wip", head: "a".repeat(40) });
+  await send(session, "message.send", { to: ["all"], context_id: randomUUID(), parts: [{ kind: "text", text: "hi" }] });
+  await send(f.humanKey, "principal.invite", { principal: "human:other", role: "member" });
+  await send(session, "ask.open", { kind: "question", question: "Other?", to: "human:other" });
+  const opened = await send(session, "ask.open", { kind: "question", question: "Ship today?", to: "human:test" });
+  const ajv = new Ajv2020({ strictTypes: false, formats: fullFormats });
+  ajv.addKeyword("x-crosstalk-version");
+  for (const schema of Object.values(publishedSchemas())) ajv.addSchema(schema);
+  const get = async (name: string, token = session) => {
+    const { data } = await f.call("/" + name, token);
+    expect(ajv.validate(SCHEMA_BASE + "v2/" + name + ".json", data), ajv.errorsText()).toBe(true);
+    return data.result;
+  };
+  const board = await get("board"), identity = await get("identity");
+  expect(await get("identity", f.humanKey)).not.toHaveProperty("session");
+  expect((await get("inbox")).asks).toEqual([opened.data.result]);
+  const view = relevantBoard(board, null, identity.session) as { asks: unknown[] };
+  expect(Object.keys(view)[0]).toBe("asks");
+  expect(view.asks[0]).toEqual(opened.data.result);
 });

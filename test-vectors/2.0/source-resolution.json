@@ -1,0 +1,231 @@
+{
+  "protected": [
+    "main"
+  ],
+  "env": {
+    "GIT_AUTHOR_NAME": "vector",
+    "GIT_COMMITTER_NAME": "vector",
+    "GIT_AUTHOR_EMAIL": "vector@example.org",
+    "GIT_COMMITTER_EMAIL": "vector@example.org",
+    "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z",
+    "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"
+  },
+  "commands": [
+    {
+      "args": [
+        "init",
+        "-q",
+        "--bare",
+        "--object-format=sha1",
+        "-b",
+        "main"
+      ]
+    },
+    {
+      "args": [
+        "mktree"
+      ],
+      "save": "$tree"
+    },
+    {
+      "args": [
+        "commit-tree",
+        "$tree",
+        "-m",
+        "base"
+      ],
+      "save": "$base"
+    },
+    {
+      "args": [
+        "commit-tree",
+        "$tree",
+        "-p",
+        "$base",
+        "-m",
+        "b1"
+      ],
+      "save": "$b1"
+    },
+    {
+      "args": [
+        "commit-tree",
+        "$tree",
+        "-p",
+        "$b1",
+        "-m",
+        "b2"
+      ],
+      "save": "$b2"
+    },
+    {
+      "args": [
+        "commit-tree",
+        "$tree",
+        "-p",
+        "$b2",
+        "-m",
+        "a"
+      ],
+      "save": "$a"
+    },
+    {
+      "args": [
+        "commit-tree",
+        "$tree",
+        "-p",
+        "$base",
+        "-p",
+        "$b2",
+        "-m",
+        "merge"
+      ],
+      "save": "$merge"
+    }
+  ],
+  "cases": [
+    {
+      "name": "direct tip",
+      "update": {
+        "ref": "refs/heads/main",
+        "old": "$base",
+        "new": "$b2"
+      },
+      "refs": {
+        "refs/heads/B": "$b2"
+      },
+      "statuses": [],
+      "expected": [
+        {
+          "source_branch": "B",
+          "source_head": "$b2"
+        }
+      ]
+    },
+    {
+      "name": "merge parent",
+      "update": {
+        "ref": "refs/heads/main",
+        "old": "$base",
+        "new": "$merge"
+      },
+      "refs": {
+        "refs/heads/B": "$b2"
+      },
+      "statuses": [],
+      "expected": [
+        {
+          "source_branch": "B",
+          "source_head": "$b2"
+        }
+      ]
+    },
+    {
+      "name": "unknown",
+      "update": {
+        "ref": "refs/heads/main",
+        "old": "$base",
+        "new": "$a"
+      },
+      "refs": {},
+      "statuses": [],
+      "expected": [
+        {
+          "source_head": "$a",
+          "unknown_source": true
+        }
+      ]
+    },
+    {
+      "name": "queue ignored",
+      "update": {
+        "ref": "refs/heads/main",
+        "old": "$base",
+        "new": "$a"
+      },
+      "refs": {
+        "refs/heads/gh-readonly-queue/main/q": "$a"
+      },
+      "statuses": [],
+      "expected": [
+        {
+          "source_head": "$a",
+          "unknown_source": true
+        }
+      ]
+    },
+    {
+      "name": "draft ancestry despite unknown source",
+      "update": {
+        "ref": "refs/heads/main",
+        "old": "$base",
+        "new": "$a"
+      },
+      "refs": {},
+      "statuses": [
+        {
+          "type": "branch_status",
+          "branch": "A",
+          "state": "wip",
+          "head": "$b1",
+          "owner": "human:test",
+          "rev": 1
+        }
+      ],
+      "expected": [
+        {
+          "source_head": "$a",
+          "unknown_source": true
+        },
+        {
+          "source_branch": "A",
+          "source_head": "$b1"
+        }
+      ]
+    },
+    {
+      "name": "stacked draft without own commits still blocks",
+      "update": {
+        "ref": "refs/heads/main",
+        "old": "$base",
+        "new": "$merge"
+      },
+      "refs": {
+        "refs/heads/B": "$b2",
+        "refs/heads/A": "$b1"
+      },
+      "statuses": [
+        {
+          "type": "branch_status",
+          "branch": "B",
+          "state": "ready",
+          "head": "$b2",
+          "owner": "human:test",
+          "rev": 1
+        },
+        {
+          "type": "branch_status",
+          "branch": "A",
+          "state": "wip",
+          "head": "$b2",
+          "owner": "human:test",
+          "rev": 1
+        }
+      ],
+      "expected": [
+        {
+          "source_branch": "B",
+          "source_head": "$b2"
+        },
+        {
+          "source_branch": "A",
+          "source_head": "$b2"
+        },
+        {
+          "source_branch": "A",
+          "source_head": "$b1"
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@ import { jcs, validateTicket } from "../schema/index.js";
 import { execFileSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { appendFileSync } from "node:fs";
-import { Workspace, ClientError, render, hookDigest, gitIdentity, editConflicts, ancestor, reservationConflicts } from "../client/index.js";
+import { Workspace, ClientError, render, hookDigest, ASK_REMINDER, gitIdentity, editConflicts, ancestor, reservationConflicts } from "../client/index.js";
 import type { CoordinationBoard } from "../client/index.js";
 import { classifyShell, segments } from "./shell.js";
 import { harnessAdapter } from "../client/index.js";
@@ -96,13 +96,15 @@ async function runHookInner(harness: string, event: string, stdin: string, start
         return false;
       });
       w.cache.set(cursorKey, events.at(-1)?.seq ?? cursor);
-      return relevant.length ? output(render(relevant.map(e => ({ principal: e.actor.principal, ...e.body })), { offline, maxTotal: 1499 })) : output();
+      const items: unknown[] = relevant.map(e => ({ principal: e.actor.principal, ...e.body }));
+      if (relevant.some(e => e.body.type === "ask" && e.body.state === "open")) items.unshift(ASK_REMINDER);
+      return relevant.length ? output(render(items, { offline, maxTotal: 1499 })) : output();
     }
     if (generic === "session_start") {
       const board = await client.board();
       const inbox = await client.inbox();
       const messages = (inbox.result as { messages?: { body: { parts: unknown; to: unknown } }[] }).messages ?? [];
-      const value = { messages: messages.map(m => ({ to: m.body.to, parts: m.body.parts })), ...hookDigest(board.response.result, gitIdentity(input.cwd).branch, record.session_id, w.cache.get<string[]>(touchedKey) ?? []) as object };
+      const value = hookDigest(board.response.result, gitIdentity(input.cwd).branch, record.session_id, w.cache.get<string[]>(touchedKey) ?? [], messages.map(m => ({ to: m.body.to, parts: m.body.parts })));
       w.cache.set(digestKey, { value, fetched_at: board.fetched_at });
       w.cache.set(cursorKey, board.response.seq);
       return output(render(value, { ...board, maxTotal: 1499 }));

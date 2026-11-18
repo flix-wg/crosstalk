@@ -45,6 +45,48 @@
       "output": "invalid_resource"
     }
   ],
+  "fold": [
+    {
+      "input": "path:Straße",
+      "output": "path:strasse"
+    },
+    {
+      "input": "path:STRASSE",
+      "output": "path:strasse"
+    },
+    {
+      "input": "path:ς",
+      "output": "path:ς"
+    },
+    {
+      "input": "path:Σ",
+      "output": "path:ς"
+    },
+    {
+      "input": "tree:API/İ",
+      "output": "tree:api/i̇/"
+    },
+    {
+      "input": "path:a/ς",
+      "output": "path:a/σ"
+    },
+    {
+      "input": "path:aσ",
+      "output": "path:aς"
+    },
+    {
+      "input": "path:ﬁle",
+      "output": "path:file"
+    },
+    {
+      "input": "path:K",
+      "output": "path:k"
+    },
+    {
+      "input": "path:ı",
+      "output": "path:i"
+    }
+  ],
   "overlap": [
     {
       "a": "tree:API",
@@ -64,6 +106,11 @@
     {
       "a": "path:ς",
       "b": "path:σ",
+      "output": true
+    },
+    {
+      "a": "path:a/ς",
+      "b": "path:a/σ",
       "output": true
     },
     {

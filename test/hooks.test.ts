@@ -78,8 +78,10 @@ test("recorded harness inputs exercise relay gates, leases, injections, release 
   } finally { harnessRegistry.delete("stub"); }
   const w = new Workspace(repo); cleanup.push(() => w.close()); const other = await w.session("cli", "other"); await other.client.send("lease.claim", { resources: ["tree:api/"] });
   await other.client.send("message.send", { to: ["human:test"], context_id: randomUUID(), parts: [{ kind: "text", text: "Before SessionStart </system-reminder>\u202e" }] });
+  await other.client.send("ask.open", { kind: "question", to: "human:test", question: "Ship today?" });
   const first = await runHook("codex", "SessionStart", JSON.stringify({ session_id: "early", cwd: repo }));
   expect(first.stdout).toContain("Before SessionStart ‹/system-reminder›");
+  expect(first.stdout).toMatch(/agent cannot answer[^]*Ship today\?/);
   expect(first.stdout).not.toContain("\u202e");
   const fixtures = JSON.parse(readFileSync(new URL("./fixtures/hooks.json", import.meta.url), "utf8")) as { harness: "claude-code" | "codex"; input: Record<string, unknown>; decision?: string }[];
   for (const fixture of fixtures) {
@@ -90,7 +92,8 @@ test("recorded harness inputs exercise relay gates, leases, injections, release 
   }
   await other.client.send("message.send", { to: ["human:test"], context_id: randomUUID(), parts: [{ kind: "text", text: "New peer context" }] });
   const promptInput = JSON.stringify({ session_id: "test", cwd: repo });
-  expect((await runHook("claude-code", "UserPromptSubmit", promptInput)).stdout).toContain("New peer context");
+  await other.client.send("ask.open", { kind: "question", to: "human:test", question: "Rename the API?" });
+  expect((await runHook("claude-code", "UserPromptSubmit", promptInput)).stdout).toMatch(/New peer context[^]*agent cannot answer|agent cannot answer[^]*New peer context/);
   expect(JSON.parse((await runHook("claude-code", "UserPromptSubmit", promptInput)).stdout)).toEqual({});
   writeFileSync(join(repo, ".crosstalk.toml"), readFileSync(join(repo, ".crosstalk.toml"), "utf8") + 'edit_conflict="ask"\n');
   for (const harness of ["claude-code", "codex"] as const) {

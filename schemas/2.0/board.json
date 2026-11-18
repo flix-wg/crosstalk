@@ -1,0 +1,424 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flix-wg.github.io/crosstalk/schema/v2/board.json",
+  "x-crosstalk-version": "2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "epoch": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frozen": {
+          "type": "boolean"
+        },
+        "coordination": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branches": {
+              "type": "array",
+              "items": {
+                "$ref": "event.json#/$defs/branch_status"
+              }
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "sequences": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[^()]*\\(\\\\d\\+\\)[^()]*$"
+                  }
+                },
+                "protected_branches": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                },
+                "gates": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "merge": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "unknown": {
+                          "enum": [
+                            "pass",
+                            "warn",
+                            "block"
+                          ]
+                        },
+                        "unknown_source": {
+                          "enum": [
+                            "pass",
+                            "warn",
+                            "block"
+                          ]
+                        },
+                        "stale_ready": {
+                          "enum": [
+                            "pass",
+                            "warn",
+                            "block"
+                          ]
+                        }
+                      },
+                      "required": []
+                    }
+                  },
+                  "required": []
+                },
+                "envs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "require_on": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": []
+                  }
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "branches",
+            "policy"
+          ]
+        },
+        "presence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "principal": {
+                "type": "string",
+                "pattern": "^(human|ci):[a-z0-9][a-z0-9-]{0,38}$"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "device": {
+                "type": "string"
+              },
+              "doing": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "working",
+                  "waiting",
+                  "offline"
+                ]
+              },
+              "expires_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "session",
+              "principal",
+              "tool",
+              "device",
+              "doing",
+              "state",
+              "expires_at"
+            ]
+          }
+        },
+        "leases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "exclusive",
+                  "shared"
+                ]
+              },
+              "lease_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "holder": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "resources": {
+                "$ref": "event.json#/$defs/keys"
+              },
+              "state": {
+                "enum": [
+                  "pending",
+                  "held",
+                  "released",
+                  "expired",
+                  "revoked"
+                ]
+              },
+              "fence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "rev": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "note": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 280
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "supersedes": {
+                "anyOf": [
+                  {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 2,
+                    "uniqueItems": true
+                  }
+                ]
+              },
+              "expires_at": {
+                "$ref": "event.json#/$defs/time"
+              },
+              "expires_in_s": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "mode",
+              "lease_id",
+              "holder",
+              "resources",
+              "state",
+              "fence",
+              "rev",
+              "note",
+              "supersedes",
+              "expires_at",
+              "expires_in_s"
+            ]
+          }
+        },
+        "asks": {
+          "type": "array",
+          "items": {
+            "$ref": "event.json#/$defs/ask"
+          }
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "event.json#/$defs/message"
+          }
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "event.json#/$defs/decision"
+          }
+        },
+        "reservations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sequence": {
+                "type": "string"
+              },
+              "value": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "holder": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "abandoned": {
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            },
+            "required": [
+              "sequence",
+              "value",
+              "holder",
+              "abandoned"
+            ]
+          }
+        },
+        "more": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "presence": {
+              "type": "boolean"
+            },
+            "leases": {
+              "type": "boolean"
+            },
+            "asks": {
+              "type": "boolean"
+            },
+            "messages": {
+              "type": "boolean"
+            },
+            "decisions": {
+              "type": "boolean"
+            },
+            "deployments": {
+              "type": "boolean"
+            },
+            "reservations": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "presence",
+            "leases",
+            "asks",
+            "messages",
+            "decisions",
+            "deployments",
+            "reservations"
+          ]
+        },
+        "deployments": {
+          "type": "array",
+          "items": {
+            "$ref": "event.json#/$defs/deployment"
+          }
+        },
+        "live": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "live_artifact": {
+                "anyOf": [
+                  {
+                    "$ref": "event.json#/$defs/digest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "live_sha": {
+                "anyOf": [
+                  {
+                    "$ref": "event.json#/$defs/oid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "exec_seq": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "live_artifact",
+              "live_sha",
+              "exec_seq"
+            ]
+          }
+        },
+        "audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "head": {
+              "$ref": "event.json#/$defs/hash"
+            },
+            "exported_seq": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "lag": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "head",
+            "exported_seq",
+            "lag"
+          ]
+        }
+      },
+      "required": [
+        "frozen",
+        "coordination",
+        "presence",
+        "leases",
+        "asks",
+        "messages",
+        "decisions",
+        "reservations",
+        "more"
+      ]
+    }
+  },
+  "required": [
+    "epoch",
+    "seq",
+    "result"
+  ]
+}

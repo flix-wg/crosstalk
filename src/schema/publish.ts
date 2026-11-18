@@ -1,3 +1,4 @@
+import { boardResponse, inboxResponse, identityResponse } from "./response-schema.js";
 import { eventSchema } from "./event-schema.js";
 import { commandSchema } from "./command-schema.js";
 import { sessionSchema, installSchema } from "./session-schema.js";
@@ -22,5 +23,6 @@ export function publishedSchemas(): Record<string, Schema> {
     install: document("install", installSchema),
     gate: document("gate", wireGateSchema),
     deploy: document("deploy", deploySchema),
+    board: document("board", boardResponse), inbox: document("inbox", inboxResponse), identity: document("identity", identityResponse),
   };
 }
