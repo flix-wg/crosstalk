@@ -179,6 +179,9 @@ test("board, inbox and identity responses match their schemas and surface addres
     return data.result;
   };
   const board = await get("board"), identity = await get("identity");
+  const { data: raw } = await f.call("/inbox", session);
+  raw.later = 1; raw.result.later = 1; raw.result.asks[0].later = 1;
+  expect(ajv.validate(SCHEMA_BASE + "v2/inbox.json", raw), "unknown members are allowed").toBe(true);
   expect(await get("identity", f.humanKey)).not.toHaveProperty("session");
   expect((await get("inbox")).asks).toEqual([opened.data.result]);
   const view = relevantBoard(board, null, identity.session) as { asks: unknown[] };

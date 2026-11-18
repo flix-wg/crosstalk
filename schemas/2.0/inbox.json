@@ -3,7 +3,6 @@
   "$id": "https://flix-wg.github.io/crosstalk/schema/v2/inbox.json",
   "x-crosstalk-version": "2.0",
   "type": "object",
-  "additionalProperties": false,
   "properties": {
     "epoch": {
       "type": "string",
@@ -15,7 +14,6 @@
     },
     "result": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "cursor": {
           "type": "integer",
@@ -25,14 +23,13 @@
           "type": "array",
           "items": {
             "type": "object",
-            "additionalProperties": false,
             "properties": {
               "seq": {
                 "type": "integer",
                 "minimum": 0
               },
               "body": {
-                "$ref": "event.json#/$defs/message"
+                "$ref": "#/$defs/message"
               }
             },
             "required": [
@@ -44,7 +41,7 @@
         "asks": {
           "type": "array",
           "items": {
-            "$ref": "event.json#/$defs/ask"
+            "$ref": "#/$defs/ask"
           }
         }
       },
@@ -59,5 +56,574 @@
     "epoch",
     "seq",
     "result"
-  ]
+  ],
+  "$defs": {
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "oid": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "key": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(path:[^/].*[^/]|path:[^/]|tree:[^/].*/|branch:\\S+|env:[a-z0-9][a-z0-9-]*|res:\\S+|seq:[a-z0-9][a-z0-9_-]*)$"
+    },
+    "keys": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/key"
+      },
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "text"
+            ],
+            "properties": {
+              "kind": {
+                "const": "text"
+              },
+              "text": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "data"
+            ],
+            "properties": {
+              "kind": {
+                "const": "data"
+              },
+              "data": {
+                "type": "object"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "branch_status": {
+      "type": "object",
+      "required": [
+        "type",
+        "branch",
+        "state",
+        "head",
+        "owner",
+        "rev"
+      ],
+      "properties": {
+        "type": {
+          "const": "branch_status"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "wip",
+            "draft",
+            "ready"
+          ]
+        },
+        "head": {
+          "$ref": "#/$defs/oid"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 280
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 140
+          },
+          "maxItems": 10
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "lease": {
+      "type": "object",
+      "required": [
+        "type",
+        "lease_id",
+        "op",
+        "state",
+        "resources",
+        "holder",
+        "fence",
+        "rev",
+        "expires_at"
+      ],
+      "properties": {
+        "type": {
+          "const": "lease"
+        },
+        "mode": {
+          "enum": [
+            "exclusive",
+            "shared"
+          ]
+        },
+        "lease_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "op": {
+          "enum": [
+            "acquire",
+            "install",
+            "release",
+            "expire",
+            "revoke"
+          ]
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "held",
+            "released",
+            "expired",
+            "revoked"
+          ]
+        },
+        "resources": {
+          "$ref": "#/$defs/keys"
+        },
+        "holder": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 280
+        },
+        "supersedes": {
+          "anyOf": [
+            {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "minItems": 2,
+              "uniqueItems": true
+            }
+          ]
+        },
+        "expires_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "reservation": {
+      "type": "object",
+      "required": [
+        "type",
+        "sequence",
+        "value",
+        "holder"
+      ],
+      "properties": {
+        "type": {
+          "const": "reservation"
+        },
+        "sequence": {
+          "type": "string"
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "holder": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 280
+        }
+      }
+    },
+    "message": {
+      "type": "object",
+      "required": [
+        "type",
+        "message_id",
+        "to",
+        "context_id",
+        "parts"
+      ],
+      "properties": {
+        "type": {
+          "const": "message"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "to": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(human:[a-z0-9-]+|ci:[a-z0-9-]+|session:[0-9a-f-]{36}|all)$"
+          }
+        },
+        "context_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "parts": {
+          "$ref": "#/$defs/parts"
+        }
+      }
+    },
+    "ask": {
+      "type": "object",
+      "required": [
+        "type",
+        "ask_id",
+        "rev",
+        "kind",
+        "to",
+        "question",
+        "state"
+      ],
+      "properties": {
+        "type": {
+          "const": "ask"
+        },
+        "ask_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "question",
+            "approval"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^human:[a-z0-9][a-z0-9-]{0,38}$"
+        },
+        "question": {
+          "$ref": "#/$defs/text"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/key"
+          },
+          "maxItems": 16
+        },
+        "blocks": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^(merge:(branch|target):\\S+|deploy:env:[a-z0-9-]+)$"
+          }
+        },
+        "bound_head": {
+          "$ref": "#/$defs/oid"
+        },
+        "bound_artifact": {
+          "$ref": "#/$defs/digest"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "answered",
+            "withdrawn"
+          ]
+        },
+        "deadline": {
+          "$ref": "#/$defs/time"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "question"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "blocks": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "answer": {
+      "type": "object",
+      "required": [
+        "type",
+        "ask_id",
+        "answer_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "answer"
+        },
+        "ask_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "answer_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "choice": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "required": [
+        "type",
+        "decision_id",
+        "source",
+        "verdict",
+        "bound_head",
+        "decided_by"
+      ],
+      "properties": {
+        "type": {
+          "const": "decision"
+        },
+        "decision_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ask",
+                "override"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "verdict": {
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        },
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "bound_head": {
+          "$ref": "#/$defs/oid"
+        },
+        "bound_artifact": {
+          "$ref": "#/$defs/digest"
+        },
+        "rationale": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "decided_by": {
+          "type": "string",
+          "pattern": "^human:[a-z0-9-]+$"
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "required": [
+        "type",
+        "env",
+        "sha",
+        "artifact",
+        "op",
+        "exec_seq",
+        "outcome",
+        "live_after"
+      ],
+      "properties": {
+        "type": {
+          "const": "deployment"
+        },
+        "env": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "sha": {
+          "$ref": "#/$defs/oid"
+        },
+        "artifact": {
+          "$ref": "#/$defs/digest"
+        },
+        "fence": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "op": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "exec_seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "live_after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "promoted",
+            "failed",
+            "reconciled",
+            "adopted"
+          ]
+        }
+      }
+    },
+    "admin": {
+      "type": "object",
+      "required": [
+        "type",
+        "action"
+      ],
+      "properties": {
+        "type": {
+          "const": "admin"
+        },
+        "action": {
+          "enum": [
+            "principal_enrolled",
+            "principal_revoked",
+            "epoch_started",
+            "gates_frozen",
+            "gates_unfrozen",
+            "requirement_withdrawn",
+            "override_recorded",
+            "executor_enrolled",
+            "lease_installed",
+            "policy_set",
+            "ref_seeded"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 280
+        }
+      }
+    }
+  }
 }

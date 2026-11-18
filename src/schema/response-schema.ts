@@ -1,17 +1,21 @@
 import { commandArgsSchemas } from "./command-schema.js";
 import { eventSchema } from "./event-schema.js";
 
-const object = (properties: Record<string, unknown>, required = Object.keys(properties)) =>
-  ({ type: "object", additionalProperties: false, properties, required });
+// Response schemas are open: a relay MAY add members, so nothing here sets additionalProperties: false (15.5).
+const object = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "object", properties, required });
+const open = (value: unknown): unknown => Array.isArray(value) ? value.map(open)
+  : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([key, v]) => !(key === "additionalProperties" && v === false)).map(([key, v]) => [key, open(v)]))
+  : value;
 const array = (items: unknown) => ({ type: "array", items });
-const def = (name: keyof typeof eventSchema.$defs) => ({ $ref: "event.json#/$defs/" + name });
+const def = (name: keyof typeof eventSchema.$defs) => ({ $ref: "#/$defs/" + name });
 const seq = { type: "integer", minimum: 0 };
 const uuid = eventSchema.properties.space;
 const text = { type: "string" };
 const principal = eventSchema.properties.actor.properties.principal;
 const orNull = (schema: unknown) => ({ anyOf: [schema, { type: "null" }] });
 const lease = eventSchema.$defs.lease.properties;
-const response = (result: unknown) => object({ epoch: uuid, seq, result });
+const response = (result: unknown) => <Record<string, unknown>>open({ ...object({ epoch: uuid, seq, result }),
+  ...JSON.stringify(result).includes("#/$defs/") ? { $defs: eventSchema.$defs } : {} });
 const presence = object({ session: uuid, principal, tool: text, device: text, doing: text,
   state: { enum: ["working", "waiting", "offline"] }, expires_at: { type: "integer" } });
 const leaseView = object({ mode: lease.mode, lease_id: uuid, holder: uuid, resources: def("keys"), state: lease.state,
