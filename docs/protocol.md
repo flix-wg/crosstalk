@@ -3,9 +3,9 @@
 | | |
 |---|---|
 | Protocol version | 2.0 |
-| Status | Draft |
-| Date | 2026-11-17 |
-| Schemas | `https://flix-wg.github.io/crosstalk/schema/v2/event.json`, `https://flix-wg.github.io/crosstalk/schema/v2/command.json` (Appendix A) |
+| Status | Released |
+| Date | 2026-11-18 |
+| Schemas | `https://flix-wg.github.io/crosstalk/schema/v2/` (Appendix A) |
 | Reference implementation | [`crosstalk`](https://github.com/flix-wg/crosstalk) (CLI `xt`), MIT |
 
 crosstalk lets coding agents of different developers, running in different AI harnesses, work in one repository without stepping on each other. Agents and humans publish presence, take shared or exclusive leases with fencing tokens, reserve sequence numbers, exchange messages, ask humans for decisions, mark branches ready, and pass merge and deploy gates. A relay orders every change into one hash-chained log per repository, which can be exported to git for audit.
@@ -18,7 +18,7 @@ Optional normative [companion specifications](companions/) define deploy executi
 
 ## 1. Status and version
 
-This document specifies **crosstalk protocol 2.0**, a draft that may change until release. A released version never changes. The protocol version is independent of any package or binary version: the reference implementation may ship as 0.x or 3.x while speaking protocol 2.0. Section 15 defines how versions are discovered, negotiated, extended and retired. Section 16 is the protocol changelog.
+This document specifies **crosstalk protocol 2.0**, released 2026-11-18. A released version never changes. The protocol version is independent of any package or binary version: the reference implementation may ship as 0.x or 3.x while speaking protocol 2.0. Section 15 defines how versions are discovered, negotiated, extended and retired. Section 16 is the protocol changelog.
 
 ## 2. Conventions and terminology
 
@@ -664,13 +664,16 @@ Anything that should become part of the protocol is proposed as a new minor vers
 
 ## 16. Protocol changelog
 
-### 2.0 (2026-11-17)
+### 2.0 (2026-11-18)
+
+A preliminary 2.0 text was published on 2026-11-17 and amended until this release; this entry describes the released 2.0.
 
 - Shared and exclusive leases use one lifecycle. Shared claims report work, can queue offline, and never block peers. Successful claims report overlapping work. Environment claims become held immediately when there is no enrolled executor.
 - New major: `/v2`, envelope `v: 2`, v2 schema IDs and audit ref; immutable 1.0 snapshots retained. Protocol 1.0 had no deployments or users, so the reference relay does not serve it alongside 2.0; `/v1/` requests return `unsupported_version` (exception to the SHOULD in 15.6).
 - Removed ask cancellation, rejection/expiry states and expiry sweep, `reaffirm`, branch `cleared`, the unused `executor.reconcile` wire op, and A2A claims. Approval answers may repeat and rebind; the newest decision controls each requirement. Askers may withdraw only unblocking asks; deadlines are informational.
 - Moved deployment execution, audit export and backup restore to optional normative companions. The no-live-state deploy block applies only to environments with an enrolled executor.
-- Added portable canonical JSON, event hash, resource key, signature and merge-gate test vectors (Appendix C).
+- Added portable canonical JSON, event hash, resource key, signature, merge-gate, lease, deploy-gate and source-resolution test vectors (Appendix C), and open response schemas for board, inbox and identity (Appendix A).
+- Resource keys fold case with Unicode 17.0 mappings and the relay is authoritative (5.4). `ref.advance` chunks and request IDs are fully specified (7.4). Open asks reach the addressed human before other context in prompt hooks.
 - Remote hooks and GitHub required checks inspect draft ancestry; temporary queue refs are excluded. Only eligible topic branch names may be reclaimed after merge. Unknown sources check target requirements. Sequence policies reject newly duplicated numbers in the proposed tree. Expanded sanitizer Unicode ranges and shell classification; configured deploy commands require session-held env leases; sequence-file creation checks reservation ownership and abandonment.
 
 ### 1.0 (2026-11-17)
@@ -685,7 +688,7 @@ This part is non-normative, except that the fail-closed rule in 17.3 is REQUIRED
 
 ## 17. Generic hook events
 
-Upgrade the relay and client hooks together for this draft because older hooks treat shared leases as exclusive.
+Upgrade the relay and client hooks together: hooks built against the preliminary 2.0 text of 2026-11-17 treat shared leases as exclusive.
 
 ### 17.1 Events
 

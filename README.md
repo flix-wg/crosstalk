@@ -16,13 +16,13 @@ Agents reach it through hooks (Claude Code, Codex), through MCP (`xt mcp`, any M
 
 ## Status
 
-Early. The protocol is a 2.0 draft and the reference implementation passes its own acceptance tests, but it has only been used in trials, not in production. Expect rough edges. [`docs/protocol-gaps.md`](docs/protocol-gaps.md) lists where the code does not yet meet the protocol.
+Early. Protocol 2.0 is released and the reference implementation passes its own acceptance tests, but it has only been used in trials, not in production. Expect rough edges. [`docs/protocol-gaps.md`](docs/protocol-gaps.md) lists where the code does not yet meet the protocol.
 
 Upgrade the relay and client hooks together for this draft because older hooks treat shared leases as exclusive.
 
 ## Protocol
 
-[`docs/protocol.md`](docs/protocol.md) defines the protocol independently of this implementation: relay API, events, commands, leases, gates, asks, audit export, versioning, and how a new harness binds to it. JSON Schemas are published at `https://flix-wg.github.io/crosstalk/schema/v2/` (newest 2.x) and `…/schema/2.0/` (draft snapshot until release). Optional [companions](docs/companions/) and portable [test vectors](test-vectors/2.0/) accompany the core.
+[`docs/protocol.md`](docs/protocol.md) defines the protocol independently of this implementation: relay API, events, commands, leases, gates, asks, audit export, versioning, and how a new harness binds to it. JSON Schemas are published at `https://flix-wg.github.io/crosstalk/schema/v2/` (newest 2.x) and `…/schema/2.0/` (immutable 2.0 snapshot). Optional [companions](docs/companions/) and portable [test vectors](test-vectors/2.0/) accompany the core.
 
 ## Install from source
 
