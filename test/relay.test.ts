@@ -174,22 +174,22 @@ test("board, inbox and identity responses match their schemas and surface addres
   const ajv = new Ajv2020({ strictTypes: false, formats: fullFormats });
   ajv.addKeyword("x-crosstalk-version");
   for (const schema of Object.values(publishedSchemas())) ajv.addSchema(schema);
+  const responses: Record<string, unknown> = {};
   const get = async (name: string, token = session) => {
     const { data } = await f.call("/" + name, token);
     expect(ajv.validate(SCHEMA_BASE + "v2/" + name + ".json", data), ajv.errorsText()).toBe(true);
+    responses[name] = data;
     return data.result;
   };
-  const board = await get("board"), identity = await get("identity");
+  const board = await get("board"), identity = await get("identity"), inbox = await get("inbox");
   expect(board.deployments).toHaveLength(1);
   expect(board.live.prod).toMatchObject({ live_sha: "a".repeat(40), exec_seq: 0 });
-  const { data: raw } = await f.call("/inbox", session);
-  raw.later = 1; raw.result.later = 1; raw.result.asks[0].later = 1;
-  const { data: rawIdentity } = await f.call("/identity", session), { data: rawBoard } = await f.call("/board", session);
-  rawIdentity.result.later = 1; rawBoard.result.live.prod.later = 1;
-  for (const [name, data] of [["inbox", raw], ["identity", rawIdentity], ["board", rawBoard]] as const)
-    expect(ajv.validate(SCHEMA_BASE + "v2/" + name + ".json", data), name + ": unknown members are allowed").toBe(true);
+  // Unknown members at any level must still validate (open response schemas, 15.5).
+  const extended = structuredClone(responses) as Record<string, { result: { asks: object[]; live: Record<string, object> } }>;
+  for (const value of [extended.inbox, extended.inbox.result, extended.inbox.result.asks[0], extended.identity.result, extended.board.result.live.prod]) Object.assign(value, { later: 1 });
+  for (const [name, data] of Object.entries(extended)) expect(ajv.validate(SCHEMA_BASE + "v2/" + name + ".json", data), name + ": unknown members are allowed").toBe(true);
   expect(await get("identity", f.humanKey)).not.toHaveProperty("session");
-  expect((await get("inbox")).asks).toEqual([opened.data.result]);
+  expect(inbox.asks).toEqual([opened.data.result]);
   const view = relevantBoard(board, null, identity.session) as { asks: unknown[] };
   expect(Object.keys(view)[0]).toBe("asks");
   expect(view.asks[0]).toEqual(opened.data.result);
