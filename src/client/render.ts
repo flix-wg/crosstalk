@@ -57,15 +57,21 @@ export function render(snapshot: unknown, opts: { shortened?: boolean; peer?: bo
   }
   return result;
 }
+// Opaque single tokens (signatures, ids, digests) are not free text: a random one can contain "key" by chance (14.4).
+// They still count when a field name says key, token, password or secret.
+const opaque = /^[A-Za-z0-9+/_-]+={0,2}$/, keyword = /(?:key|token|password|secret)/i;
+const fields = (value: unknown, name = ""): [string, string][] => typeof value === "string" ? [[name, value]]
+  : Array.isArray(value) ? value.flatMap(v => fields(v, name)) : value && typeof value === "object" ? Object.entries(value).flatMap(([k, v]) => fields(v, k)) : [];
 export function scanSecrets(value: unknown): void {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   const common = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/;
-  const candidates = [...text.matchAll(/(?:key|token|password|secret)[\s"':=\\]{0,12}([A-Za-z0-9+/=_-]{20,})/gi)];
+  const candidates = fields(value).flatMap(([name, s]) => !opaque.test(s) ? [...s.matchAll(/(?:key|token|password|secret)[\s"':=\\]{0,12}([A-Za-z0-9+/=_-]{20,})/gi)].map(m => m[1])
+    : keyword.test(name) && s.length >= 20 ? [s] : []);
   const entropy = (s: string) => {
     const counts = new Map<string, number>();
     for (const c of s) counts.set(c, (counts.get(c) ?? 0) + 1);
     return [...counts.values()].reduce((sum, n) => sum - n / s.length * Math.log2(n / s.length), 0);
   };
-  if (common.test(text) || candidates.some(m => entropy(m[1]) >= 3.5))
+  if (common.test(text) || candidates.some(c => entropy(c) >= 3.5))
     throw new ClientError("secret_detected", "Outgoing text may contain a secret; remove it before sending");
 }

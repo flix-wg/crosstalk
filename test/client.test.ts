@@ -158,6 +158,8 @@ test("outgoing secrets never reach fetch and agent credentials reject loose perm
   await expect(client.send("lease.claim", { mode: "shared", note: "-----BEGIN PRIVATE KEY-----", resources: [] })).rejects.toMatchObject({ code: "secret_detected" });
   expect(calls).toBe(0);
   expect(() => scanSecrets("token=AbCdEfGh1234567890zyXW9876")).toThrow("secret");
+  expect(() => scanSecrets({ signature: "x9Q2keyAbCdEfGh1234567890zyXW9876pLmN" })).not.toThrow();
+  expect(() => scanSecrets({ kind: "data", data: { api_key: "AbCdEfGh1234567890zyXW9876" } })).toThrow("secret");
   const file = join(r.dir, "credentials.json");
   writeFileSync(file, JSON.stringify({ test: "k".repeat(40) }), { mode: 0o600 });
   expect(loadAgentKey("test", file).length).toBe(40);
