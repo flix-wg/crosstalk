@@ -184,7 +184,10 @@ test("board, inbox and identity responses match their schemas and surface addres
   expect(board.live.prod).toMatchObject({ live_sha: "a".repeat(40), exec_seq: 0 });
   const { data: raw } = await f.call("/inbox", session);
   raw.later = 1; raw.result.later = 1; raw.result.asks[0].later = 1;
-  expect(ajv.validate(SCHEMA_BASE + "v2/inbox.json", raw), "unknown members are allowed").toBe(true);
+  const { data: rawIdentity } = await f.call("/identity", session), { data: rawBoard } = await f.call("/board", session);
+  rawIdentity.result.later = 1; rawBoard.result.live.prod.later = 1;
+  for (const [name, data] of [["inbox", raw], ["identity", rawIdentity], ["board", rawBoard]] as const)
+    expect(ajv.validate(SCHEMA_BASE + "v2/" + name + ".json", data), name + ": unknown members are allowed").toBe(true);
   expect(await get("identity", f.humanKey)).not.toHaveProperty("session");
   expect((await get("inbox")).asks).toEqual([opened.data.result]);
   const view = relevantBoard(board, null, identity.session) as { asks: unknown[] };
