@@ -168,6 +168,7 @@ test("board, inbox and identity responses match their schemas and surface addres
   await send(session, "branch.set", { branch: "feat", state: "wip", head: "a".repeat(40) });
   await send(session, "message.send", { to: ["all"], context_id: randomUUID(), parts: [{ kind: "text", text: "hi" }] });
   await send(f.humanKey, "principal.invite", { principal: "human:other", role: "member" });
+  await send(f.humanKey, "env.adopt", { env: "prod", sha: "a".repeat(40), artifact: "sha256:" + "b".repeat(64) });
   await send(session, "ask.open", { kind: "question", question: "Other?", to: "human:other" });
   const opened = await send(session, "ask.open", { kind: "question", question: "Ship today?", to: "human:test" });
   const ajv = new Ajv2020({ strictTypes: false, formats: fullFormats });
@@ -179,6 +180,8 @@ test("board, inbox and identity responses match their schemas and surface addres
     return data.result;
   };
   const board = await get("board"), identity = await get("identity");
+  expect(board.deployments).toHaveLength(1);
+  expect(board.live.prod).toMatchObject({ live_sha: "a".repeat(40), exec_seq: 0 });
   const { data: raw } = await f.call("/inbox", session);
   raw.later = 1; raw.result.later = 1; raw.result.asks[0].later = 1;
   expect(ajv.validate(SCHEMA_BASE + "v2/inbox.json", raw), "unknown members are allowed").toBe(true);

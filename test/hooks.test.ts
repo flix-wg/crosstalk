@@ -90,10 +90,11 @@ test("recorded harness inputs exercise relay gates, leases, injections, release 
     if (fixture.decision) expect(output.hookSpecificOutput.permissionDecision).toBe(fixture.decision);
     if (output.hookSpecificOutput?.additionalContext) { expect(output.hookSpecificOutput.additionalContext).toMatch(/^\[crosstalk/); expect(output.hookSpecificOutput.additionalContext.length).toBeLessThan(1500); }
   }
-  await other.client.send("message.send", { to: ["human:test"], context_id: randomUUID(), parts: [{ kind: "text", text: "New peer context" }] });
+  // A burst of messages before an ask must not truncate the ask out of prompt delivery.
+  for (let i = 0; i < 15; i++) await other.client.send("message.send", { to: ["human:test"], context_id: randomUUID(), parts: [{ kind: "text", text: "New peer context " + "x".repeat(150) }] });
   const promptInput = JSON.stringify({ session_id: "test", cwd: repo });
   await other.client.send("ask.open", { kind: "question", to: "human:test", question: "Rename the API?" });
-  expect((await runHook("claude-code", "UserPromptSubmit", promptInput)).stdout).toMatch(/New peer context[^]*agent cannot answer|agent cannot answer[^]*New peer context/);
+  expect((await runHook("claude-code", "UserPromptSubmit", promptInput)).stdout).toMatch(/agent cannot answer[^]*Rename the API\?[^]*New peer context/);
   expect(JSON.parse((await runHook("claude-code", "UserPromptSubmit", promptInput)).stdout)).toEqual({});
   writeFileSync(join(repo, ".crosstalk.toml"), readFileSync(join(repo, ".crosstalk.toml"), "utf8") + 'edit_conflict="ask"\n');
   for (const harness of ["claude-code", "codex"] as const) {
